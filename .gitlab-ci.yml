@@ -1,0 +1,104 @@
+stages:
+  - pre-check
+  - test
+  - deploy
+
+workflow:
+  rules:
+    # Disable those non-protected push triggered pipelines
+    - if: '$CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH && $CI_COMMIT_TAG !~ /^v\d+\.\d+(\.\d+)?($|-)/ && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: always
+
+default:
+  image: ${CI_DOCKER_REGISTRY}/qa-python-env:2
+
+variables:
+  GIT_CLEAN_FLAGS: '-ffdx -e .cache/' # Ensure cache isn't deleted when the repository is cleaned.
+
+pre-commit-check:
+  stage: pre-check
+  needs: []
+  script:
+    - pre-commit run --all-files
+  tags:
+    - host_test
+    - internet
+
+# ------------------------------------------------------------------------------------------------------
+# Pytest
+# ------------------------------------------------------------------------------------------------------
+pytest-check:
+  stage: test
+  needs: []
+  before_script:
+    - pip install -e '.[test]'
+  script:
+    - pytest --junitxml=reports/junit.xml --cov=esp_test_utils --cov-report=term --cov-report xml:reports/coverage.xml
+  coverage: '/TOTAL.*\s+(\d+)\%/'
+  artifacts:
+    paths:
+      - reports/
+      - '.coverage*'
+    reports:
+      junit: reports/junit.xml
+  tags:
+    - host_test
+
+# ------------------------------------------------------------------------------------------------------
+# Code quality
+# ------------------------------------------------------------------------------------------------------
+codebase-quality:
+  stage: test
+  needs: [] # Do not wait for previous stages
+  before_script:
+    - pip install -e '.[ci-quality]'
+  script:
+    - pylint esp_test_utils/**/*.py --exit-zero --load-plugins=pylint_gitlab --output-format=gitlab-codeclimate > gl-codequality.json
+  artifacts:
+    paths:
+      - gl-codequality.json
+    reports:
+      codequality: gl-codequality.json
+    expire_in: 1 week
+  tags:
+    - host_test
+  allow_failure: true
+
+
+# ------------------------------------------------------------------------------------------------------
+# Publish - For github repositories, should use github actions for publishing packages
+# ------------------------------------------------------------------------------------------------------
+publish_packages_gitlab:
+  stage: deploy
+  dependencies: []
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+(\.\d+)?($|-)/'
+  before_script:
+    - pip install -e '.[dev]'
+    - pip install twine
+  variables:
+    TWINE_PASSWORD: ${CI_JOB_TOKEN}
+    TWINE_USERNAME: gitlab-ci-token
+  script:
+    - python -m build
+    # upload to gitlab Package Registry
+    - python -m twine upload --repository-url ${GITLAB_HTTPS_SERVER}/api/v4/projects/${CI_PROJECT_ID}/packages/pypi --verbose dist/*
+  tags:
+    - host_test
+
+
+publish_pypi:
+  extends:
+    - publish_packages_gitlab
+  when: manual
+  variables:
+    TWINE_PASSWORD: ${PYPI_API_TOKEN}
+    TWINE_USERNAME: __token__
+  script:
+    - python -m build
+    # upload to gitlab Package Registry
+    - python -m twine upload --verbose dist/*
+  tags:
+    - host_test
+    - internet
