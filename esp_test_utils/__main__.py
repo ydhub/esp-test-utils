@@ -2,6 +2,7 @@ import sys
 
 
 def main() -> None:
+    """main function, show python version and module version"""
     print(f'Current python version: {sys.version}')
     assert sys.version_info.major == 3, 'Only support python3'
     if sys.version_info.minor < 8:

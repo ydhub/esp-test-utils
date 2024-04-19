@@ -29,6 +29,10 @@
             "pytest-cov~=4.1.0",
             "pytest~=7.4.0",
         ]
+        doc = [
+            "sphinx~=7.0",
+            "sphinx_rtd_theme~=2.0",
+        ]
         test = ["pytest-cov~=4.1.0", "pytest~=7.4.0"]
 
     [project.scripts]
@@ -43,7 +47,7 @@
     [tool.pylint.MASTER]
         ignore-paths = ["tests/.*"] # Paths to ignore during linting
     [tool.pylint.'BASIC']
-        variable-rgx = "[a-z_][a-z0-9_]{1,30}$" # Variable names must start with a lowercase letter or underscore, followed by any combination of lowercase letters, numbers, or underscores, with a total length of 2 to 30 characters.
+        variable-rgx = "[a-z_][a-z0-9_]{0,30}$" # Variable names must start with a lowercase letter or underscore, followed by any combination of lowercase letters, numbers, or underscores, with a total length of 1 to 30 characters.
     [tool.pylint.'MESSAGES CONTROL']
         disable = [
             "duplicate-code",                # R0801: Similar lines in %s files
@@ -61,6 +65,7 @@
             "too-many-return-statements",    # R0911: Too many return statements
             "too-many-statements",           # R0915: Too many statements
             "ungrouped-imports",             # C0412: Imports should be grouped by packages
+            "too-many-instance-attributes",  # R0902: Too many instance attributes
         ]
     [tool.pylint.'FORMAT']
         max-line-length = 120 # Specifies the maximum line length for pylint checks
@@ -81,6 +86,7 @@
     python_version           = "3.7"                               # Specifies the Python version used to parse and check the target program
     warn_no_return           = true                                # Shows errors for missing return statements on some execution paths
     warn_return_any          = true                                # Shows a warning when returning a value with type Any from a function declared with a non- Any return type
+    allow_redefinition       = true                                # allow a variable to be redefined with an unrelated type
 
 [tool.commitizen]
     annotated_tag            = true
