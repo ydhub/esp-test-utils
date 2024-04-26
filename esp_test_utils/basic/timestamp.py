@@ -10,7 +10,7 @@ def generate_timestamp(fmt: str = '%Y-%m-%d %H:%M:%S.%f', dt: Optional[datetime]
         dt (datetime, optional): convert specific datetime to string. Defaults to datatime.now().
 
     Returns:
-        str: _description_
+        str: time stamp string
     """
     if not dt:
         dt = datetime.now()

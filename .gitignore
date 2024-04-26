@@ -1,7 +1,9 @@
 .mypy_cache/
+htmlcov/
 /.coverage
 /.coverage.*
 /.coverage.*
+gl-codequality.json
 /.nox/
 /.python-version
 /.pytype/
@@ -12,3 +14,7 @@ __pycache__/
 venv/
 build/
 .vscode/
+/log/
+dut.log
+# TBD
+docs/

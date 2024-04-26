@@ -1,0 +1,22 @@
+------------------------------------------------------------
+Server listening on TCP port 5001
+TCP window size:  128 KByte (default)
+------------------------------------------------------------
+[  4] local 127.0.0.1 port 5001 connected with 127.0.0.1 port 41388
+[ ID] Interval       Transfer     Bandwidth
+[  4]  0.0- 2.0 sec  25.2 MBytes   106 Mbits/sec
+[  4]  2.0- 4.0 sec  25.0 MBytes   105 Mbits/sec
+[  4]  4.0- 6.0 sec  25.0 MBytes   105 Mbits/sec
+[  4]  6.0- 8.0 sec  24.9 MBytes   105 Mbits/sec
+[  4]  8.0-10.0 sec  25.1 MBytes   105 Mbits/sec
+[  4] 10.0-12.0 sec  25.0 MBytes   105 Mbits/sec
+[  4] 12.0-14.0 sec  24.9 MBytes   105 Mbits/sec
+[  4] 14.0-16.0 sec  25.1 MBytes   105 Mbits/sec
+[  4] 16.0-18.0 sec  25.0 MBytes   105 Mbits/sec
+[  4] 18.0-20.0 sec  24.9 MBytes   105 Mbits/sec
+[  4] 20.0-22.0 sec  25.1 MBytes   105 Mbits/sec
+[  4] 22.0-24.0 sec  25.0 MBytes   105 Mbits/sec
+[  4] 24.0-26.0 sec  24.9 MBytes   105 Mbits/sec
+[  4] 26.0-28.0 sec  25.0 MBytes   105 Mbits/sec
+[  4] 28.0-30.0 sec  24.9 MBytes   105 Mbits/sec
+[  4]  0.0-30.0 sec   375 MBytes   105 Mbits/sec

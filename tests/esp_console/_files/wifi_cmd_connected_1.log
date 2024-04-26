@@ -1,0 +1,34 @@
+I (156882) WIFI: Connecting to testap-11...
+I (156882) WIFI: DONE.WIFI_CONNECT_START,OK.
+test_app> I (159582) wifi:new:<11,0>, old:<1,0>, ap:<255,255>, sta:<11,0>, prof:1, snd_ch_cfg:0x0
+I (159582) wifi:(connect)dot11_authmode:0x3, pairwise_cipher:0x3, group_cipher:0x3
+I (159592) wifi:state: init -> auth (0xb0)
+I (159592) wifi:state: auth -> assoc (0x0)
+I (159612) wifi:(assoc)RESP, Extended Capabilities length:8, operating_mode_notification:0
+I (159612) wifi:(assoc)RESP, Extended Capabilities, MBSSID:0, TWT Responder:0, OBSS Narrow Bandwidth RU In OFDMA Tolerance:0
+I (159622) wifi:Extended Capabilities length:8, operating_mode_notification:1
+I (159632) wifi:state: assoc -> run (0x10)
+I (159632) wifi:(trc)phytype:CBW20-SGI, snr:62, maxRate:144, highestRateIdx:0
+W (159642) wifi:(trc)band:2G, phymode:3, highestRateIdx:0, lowestRateIdx:11, dataSchedTableSize:14
+I (159652) wifi:(trc)band:2G, rate(S-MCS7, rateIdx:0), ampdu(rate:S-MCS7, schedIdx(0, stop:8)), snr:62, ampduState:wait operational
+I (159662) wifi:ifidx:0, rssi:-33, nf:-95, phytype(0x3, CBW20-SGI), phymode(0x3, 11bgn), max_rate:144, he:0, vht:0, ht:1
+I (159672) wifi:(ht)max.RxAMPDULenExponent:3(65535 bytes), MMSS:5(4 us)
+W (159682) wifi:<ba-add>idx:0, ifx:0, tid:0, TAHI:0x100f090, TALO:0x743a5a30, (ssn:0, win:64, cur_ssn:0), CONF:0xc0000005
+I (159732) wifi:connected with testap-11, aid = 1, channel 11, BW20, bssid = 30:5a:3a:74:90:f0
+I (159732) wifi:cipher(pairwise:0x3, group:0x3), pmf:0, security:WPA2-PSK, phy:11bgn, rssi:-33
+I (159742) wifi:pm start, type: 0, twt_start:0
+
+I (159742) wifi:pm start, type:0, aid:0x1, trans-BSSID:30:5a:3a:74:90:f0, BSSID[5]:0xf0, mbssid(max-indicator:0, index:0), he:0
+I (159752) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (159762) wifi:set rx beacon pti, rx_bcn_pti: 10, bcn_timeout: 25000, mt_pti: 10, mt_time: 10000
+I (159772) wifi:[ADDBA]TX addba request, tid:0, dialogtoken:1, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x0)
+I (159792) wifi:[ADDBA]TX addba request, tid:7, dialogtoken:2, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x20)
+I (159802) wifi:[ADDBA]TX addba request, tid:5, dialogtoken:3, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x0)
+I (159812) wifi:AP's beacon interval = 102400 us, DTIM period = 3
+I (159812) wifi:[ADDBA]RX addba response, status:0, tid:0/tb:1(0xa1), bufsize:64, batimeout:0, txa_wnd:64
+I (159822) wifi:[ADDBA]RX addba response, status:0, tid:7/tb:1(0xa1), bufsize:64, batimeout:0, txa_wnd:64
+I (159832) wifi:[ADDBA]RX addba response, status:0, tid:5/tb:1(0xa1), bufsize:64, batimeout:0, txa_wnd:64
+I (159812) WIFI: WIFI_EVENT_STA_CONNECTED!
+I (160812) esp_netif_handlers: sta ip: 192.168.1.46, mask: 255.255.255.0, gw: 192.168.1.1
+I (160812) WIFI: IP_EVENT_STA_GOT_IP: Interface "sta" address: 192.168.1.46
+I (160822) WIFI: - IPv4 address: 192.168.1.46,

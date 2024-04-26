@@ -2,6 +2,8 @@
     build-backend = "setuptools.build_meta"
     requires      = ["setuptools-scm>=8.0", "setuptools>=60"]
 
+[tool.setuptools_scm]
+
 [project]
     authors = [
         { name = "Chen Yudong", email = "chenyudong@espressif.com" },
@@ -14,38 +16,61 @@
     readme = "README.md"
     requires-python = ">=3.7"
 
-    dependencies = ["pyserial"]
-
+    dependencies = [
+        "psutil",
+        "pyserial",
+        "PyYAML",
+        "pexpect",
+        "pyusb",
+        "typing_extensions; python_version < '3.11'"
+    ]
 
     [project.optional-dependencies]
+        # Optional Features
+        chart = [
+            "pyecharts",
+        ]
+        # Test & Dev & Doc
         ci-quality = [
             "pylint-gitlab~=2.0.0",
             "pylint-quotes~=0.2.3",
-            "pylint==2.17.5",
+            "pylint==2.17.5"
         ]
         dev = [
             "commitizen~=3.10.1",
             "pip-tools~=7.3",
             "pytest-cov~=4.1.0",
-            "pytest~=7.4.0",
+            "pytest~=7.4.0"
+        ]
+        mypy = [
+            "types-psutil",
+            "types-PyYAML",
+            "types-pyserial",
+            "types-pexpect"
         ]
         doc = [
             "sphinx~=7.0",
             "sphinx_rtd_theme~=2.0",
         ]
-        test = ["pytest-cov~=4.1.0", "pytest~=7.4.0"]
+        test = [
+            "pytest-cov~=4.1",
+            "pytest~=7.4"
+        ]
+        test-features = [
+            "pyecharts"
+        ]
 
     [project.scripts]
-        mooo = "template_package.__main__:main"
-
-[tool.setuptools_scm]
+        esp_copy_bin = "esp_test_utils.tools.copy_bin:main"
 
 [tool.codespell]
     skip = 'tests/*'
+    ignore-words-list = "ser"
 
 [tool.pylint]
     [tool.pylint.MASTER]
         ignore-paths = ["tests/.*"] # Paths to ignore during linting
+        max-args = 6
     [tool.pylint.'BASIC']
         variable-rgx = "[a-z_][a-z0-9_]{0,30}$" # Variable names must start with a lowercase letter or underscore, followed by any combination of lowercase letters, numbers, or underscores, with a total length of 1 to 30 characters.
     [tool.pylint.'MESSAGES CONTROL']
@@ -66,9 +91,12 @@
             "too-many-statements",           # R0915: Too many statements
             "ungrouped-imports",             # C0412: Imports should be grouped by packages
             "too-many-instance-attributes",  # R0902: Too many instance attributes
+            "abstract-method",               # W0223
         ]
     [tool.pylint.'FORMAT']
         max-line-length = 120 # Specifies the maximum line length for pylint checks
+    [tool.pylint.'DESIGN']
+        max-parents = 15  # R0901: Too many ancestors (too-many-ancestors), default: 7
 
 [tool.ruff]
     line-length    = 120                                                    # Specifies the maximum line length for ruff checks
@@ -83,7 +111,7 @@
     disallow_untyped_defs    = true                                # Disallows defining functions without type annotations or with incomplete type annotations
     exclude                  = '^venv/'                            # Paths to ignore during type checking
     ignore_missing_imports   = true                                # Suppress error messages about imports that cannot be resolved
-    python_version           = "3.7"                               # Specifies the Python version used to parse and check the target program
+    python_version           = "3.11"                              # Specifies the Python version used to parse and check the target program
     warn_no_return           = true                                # Shows errors for missing return statements on some execution paths
     warn_return_any          = true                                # Shows a warning when returning a value with type Any from a function declared with a non- Any return type
     allow_redefinition       = true                                # allow a variable to be redefined with an unrelated type
@@ -91,12 +119,10 @@
 [tool.commitizen]
     annotated_tag            = true
     bump_message             = "change(bump-version): bump release version to v$new_version"
-    major_version_zero       = true                                                          # When migrating existing project to this template, set to false od remove this line
     name                     = "cz_customize"
     tag_format               = "v$version"
     update_changelog_on_bump = true
     version_provider         = "scm"
-
     [tool.commitizen.customize]
         bump_map = { "change" = "MINOR", "feat" = "MINOR", "fix" = "PATCH", "refactor" = "PATCH", "remove" = "PATCH", "revert" = "PATCH" }
         bump_pattern = "^(change|feat|fix|refactor|remove|revert)"
@@ -157,11 +183,18 @@
             type    = "input"
 
 [tool.pytest.ini_options]
-    addopts          = "-s --log-cli-level DEBUG --cov=esp_test_utils --cov-report=term"
+    addopts          = "-s --cov=esp_test_utils --cov-report=term"
     python_classes   = ["Test*"]
     python_files     = ["test_*.py"]
     python_functions = ["test_*"]
     testpaths        = ["tests"]
+    markers          = ["target_test", "env"]
+    log_cli_level    = "INFO"
+    log_cli_format   = "%(asctime)s %(levelname)s %(message)s"
+    log_cli_date_format = "%Y-%m-%d %H:%M:%S.%f"
 
 [tool.coverage.run]
-    omit = ["__*__.py", "*/tests/*"]
+    omit = [
+        "__*__.py",
+        "*/tests/*"
+    ]

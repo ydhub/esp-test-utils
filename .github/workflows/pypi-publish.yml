@@ -9,6 +9,8 @@ on:
 jobs:
   pypi-publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -17,6 +19,7 @@ jobs:
         python-version: '3.8'
     - name: Build Package
       run: |
+        pip install -e '.[dev]'
         python -m build
     - name: Publish package ${{ github.event.release.tag_name }}
       uses: pypa/gh-action-pypi-publish@release/v1

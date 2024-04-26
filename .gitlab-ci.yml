@@ -77,6 +77,8 @@ publish_packages_gitlab:
   before_script:
     - pip install -e '.[dev]'
     - pip install twine
+    # https://github.com/pypa/twine/issues/1216
+    - pip install -U packaging pkginfo
   variables:
     TWINE_PASSWORD: ${CI_JOB_TOKEN}
     TWINE_USERNAME: gitlab-ci-token
@@ -91,7 +93,11 @@ publish_packages_gitlab:
 publish_pypi:
   extends:
     - publish_packages_gitlab
-  when: manual
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+(\.\d+)?($|-)/'
+      when: manual
+  needs:
+    - publish_packages_gitlab
   variables:
     TWINE_PASSWORD: ${PYPI_API_TOKEN}
     TWINE_USERNAME: __token__

@@ -1,0 +1,18 @@
+iperf> I (243615) iperf: accept: 192.168.1.2,50400
+
+
+        Interval Bandwidth
+   0-   1 sec       3.97 Mbits/sec
+   1-   2 sec       3.82 Mbits/sec
+   2-   3 sec       4.68 Mbits/sec
+   3-   4 sec       4.31 Mbits/sec
+   4-   5 sec       4.34 Mbits/sec
+   5-   6 sec       4.59 Mbits/sec
+   6-   7 sec       4.26 Mbits/sec
+   7-   8 sec       4.16 Mbits/sec
+   8-   9 sec       4.54 Mbits/sec
+   9-  10 sec       4.54 Mbits/sec
+W (253820) iperf: tcp server recv error, error code: 128, reason: Socket is not connected
+I (253821) iperf: TCP Socket server is closed.
+I (253832) iperf: iperf exit
+  10-  11 sec       0.79 Mbits/sec

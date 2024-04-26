@@ -1,0 +1,19 @@
+I (14754) WIFI: Connecting to testap-11...
+I (14754) WIFI: DONE.WIFI_CONNECT_START,OK.
+test_app> I (17164) wifi:new:<11,2>, old:<1,0>, ap:<255,255>, sta:<11,2>, prof:1
+I (17414) wifi:state: init -> auth (b0)
+I (17504) wifi:state: auth -> assoc (0)
+I (17564) wifi:state: assoc -> run (10)
+I (17864) wifi:<ba-add>idx:0 (ifx:0, 30:5a:3a:74:90:f0), tid:0, ssn:0, winSize:64
+I (17924) wifi:<ba-del>idx
+I (17944) wifi:<ba-add>idx:0 (ifx:0, 30:5a:3a:74:90:f0), tid:0, ssn:0, winSize:64
+I (18124) wifi:connected with testap-11, aid = 1, channel 11, 40D, bssid = 30:5a:3a:74:90:f0
+I (18134) wifi:security: WPA2-PSK, phy: bgn, rssi: -31
+I (18134) wifi:pm start, type: 0
+
+I (18144) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (18144) WIFI: WIFI_EVENT_STA_CONNECTED!
+I (18214) wifi:AP's beacon interval = 102400 us, DTIM period = 3
+I (19144) esp_netif_handlers: sta ip: 192.168.1.177, mask: 255.255.255.0, gw: 192.168.1.1
+I (19144) WIFI: IP_EVENT_STA_GOT_IP: Interface "sta" address: 192.168.1.177
+I (19154) WIFI: - IPv4 address: 192.168.1.177,
