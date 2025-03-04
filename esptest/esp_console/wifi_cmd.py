@@ -53,14 +53,16 @@ class WifiCmd:
     Supported wifi-cmd Versions: v0.1.x
 
     Basic example:
-        ```
+
+    ::
+
         from esptest import dut_wrapper
         from esptest.esp_console import WifiCmd
         ...
         with dut_wrapper(serial) as sta_dut:
             connected_info = WifiCmd.connect_wifi(sta_dut, ssid, password)
         sta_ip = connected_info.ip
-        ```
+
     """
 
     # supported version:
