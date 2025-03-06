@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..adapter.dut.dut_base import DutPort
-from ..basic import to_bytes
-from ..basic import to_str
+from ..common import to_bytes
+from ..common import to_str
 from ..logger import get_logger
 
 logger = get_logger('esp_console')
@@ -55,8 +55,8 @@ class WifiCmd:
 
     Basic example:
         ```
-        from esp_test_utils import dut_wrapper
-        from esp_test_utils.esp_console import WifiCmd
+        from esptest import dut_wrapper
+        from esptest.esp_console import WifiCmd
         ...
         with dut_wrapper(serial) as sta_dut:
             connected_info = WifiCmd.connect_wifi(sta_dut, ssid, password)

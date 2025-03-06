@@ -4,7 +4,7 @@ from typing import Sequence
 from typing import TypeAlias
 from typing import Union
 
-from ..basic.decorators import enhance_import_error_message
+from ..common.decorators import enhance_import_error_message
 from ..logger import get_logger
 
 

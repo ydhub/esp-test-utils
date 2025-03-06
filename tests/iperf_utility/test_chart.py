@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from esp_test_utils.iperf_utility import line_chart
+from esptest.iperf_utility import line_chart
 
 try:
     import pyecharts  # noqa: F401

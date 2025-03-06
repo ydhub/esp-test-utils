@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from esp_test_utils.iperf_utility.iperf_test import IperfTestBaseUtility
+from esptest.iperf_utility.iperf_test import IperfTestBaseUtility
 
 
 class TestIperfTestBaseUtility(unittest.TestCase):

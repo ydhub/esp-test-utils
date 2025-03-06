@@ -22,7 +22,7 @@ from serial.tools.list_ports_common import ListPortInfo
 
 from ..logger import get_logger
 from .serial_tools import get_all_serial_ports
-from ..basic.decorators import deprecated
+from ..common.decorators import deprecated
 
 logger = get_logger('devices')
 

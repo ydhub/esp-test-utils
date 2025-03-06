@@ -1,11 +1,11 @@
-# from esp_test_utils.config import EnvConfig
+# from esptest.config import EnvConfig
 import logging
 import re
 
 from serial import Serial
 
-from esp_test_utils import dut_wrapper
-from esp_test_utils.adapter.dut import DutPort
+from esptest import dut_wrapper
+from esptest.adapter.dut import DutPort
 
 
 class JapDut(DutPort):

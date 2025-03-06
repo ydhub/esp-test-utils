@@ -7,7 +7,7 @@ from typing import Generator
 
 import pytest
 
-from esp_test_utils.config import EnvConfig
+from esptest.config import EnvConfig
 
 
 DEF_TEST_CONFIG = """

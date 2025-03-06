@@ -6,10 +6,10 @@ from typing import List
 from typing import Optional
 
 try:
-    # Run from `python -m esp_test_utils.tools.set_att`
+    # Run from `python -m esptest.tools.set_att`
     from ..logger import get_logger
 except ImportError:
-    from esp_test_utils.logger import get_logger
+    from esptest.logger import get_logger
 
 logger = get_logger('copy_bin')
 

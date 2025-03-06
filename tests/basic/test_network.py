@@ -5,7 +5,7 @@ import psutil
 import pytest
 from psutil._common import snicaddr
 
-from esp_test_utils.basic import network
+from esptest.network import netif
 
 
 MOCK_NETIF_ADDRS = {
@@ -35,9 +35,9 @@ def test_psutils_net_if_addrs() -> None:
 @mock.patch('psutil.net_if_addrs')
 def test_get_local_ip_by_interface(patch_psutil_addrs: mock.Mock) -> None:
     patch_psutil_addrs.return_value = MOCK_NETIF_ADDRS
-    ip = network.get_ip4_from_interface('lo')
+    ip = netif.get_ip4_from_interface('lo')
     assert ip == '127.0.0.1'
-    ip = network.get_ip6_from_interface('lo')
+    ip = netif.get_ip6_from_interface('lo')
     assert ip == '::1'
     assert patch_psutil_addrs.call_count > 0
 
@@ -45,7 +45,7 @@ def test_get_local_ip_by_interface(patch_psutil_addrs: mock.Mock) -> None:
 @mock.patch('psutil.net_if_addrs')
 def test_guess_ipv6(patch_psutil_addrs: mock.Mock) -> None:
     patch_psutil_addrs.return_value = MOCK_NETIF_ADDRS
-    iter_ip = network.guess_local_ip6('fe80::1')
+    iter_ip = netif.guess_local_ip6('fe80::1')
     ip = next(iter_ip)
     assert ip == r'fe80::2%if1'
 
@@ -53,9 +53,9 @@ def test_guess_ipv6(patch_psutil_addrs: mock.Mock) -> None:
 @mock.patch('psutil.net_if_addrs')
 def test_netif_vs_mac(patch_psutil_addrs: mock.Mock) -> None:
     patch_psutil_addrs.return_value = MOCK_NETIF_ADDRS
-    interface = network.get_interface_by_mac('11:22:33:44:55:66')
+    interface = netif.get_interface_by_mac('11:22:33:44:55:66')
     assert interface == 'if1'
-    mac = network.get_mac_by_interface('if1')
+    mac = netif.get_mac_by_interface('if1')
     assert mac == '11:22:33:44:55:66'
 
 

@@ -5,7 +5,7 @@ import time
 
 from serial import Serial
 
-from esp_test_utils import dut_wrapper
+from esptest import dut_wrapper
 
 
 def test_restart() -> None:

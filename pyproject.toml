@@ -61,7 +61,7 @@
         ]
 
     [project.scripts]
-        esp_copy_bin = "esp_test_utils.tools.copy_bin:main"
+        esp-copybin = "esptest.tools.copy_bin:main"
 
 [tool.codespell]
     skip = 'tests/*'
@@ -183,7 +183,7 @@
             type    = "input"
 
 [tool.pytest.ini_options]
-    addopts          = "-s --cov=esp_test_utils --cov-report=term"
+    addopts          = "-s --cov=esptest --cov-report=term"
     python_classes   = ["Test*"]
     python_files     = ["test_*.py"]
     python_functions = ["test_*"]

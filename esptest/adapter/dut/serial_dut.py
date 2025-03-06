@@ -9,7 +9,7 @@ from typing import TypeAlias
 import serial
 from serial import Serial
 
-from ...basic import to_bytes
+from ...common import to_bytes
 from ...logger import get_logger
 
 

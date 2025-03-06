@@ -18,9 +18,9 @@ from typing import Union
 
 import pexpect.spawnbase
 
-from ..basic import generate_timestamp
-from ..basic import to_bytes
-from ..basic import to_str
+from ..common import generate_timestamp
+from ..common import to_bytes
+from ..common import to_str
 from ..logger import get_logger
 
 try:

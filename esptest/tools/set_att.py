@@ -2,10 +2,10 @@ import argparse
 import logging
 
 try:
-    # Run from `python -m esp_test_utils.tools.set_att`
+    # Run from `python -m esptest.tools.set_att`
     from ..devices import attenuator
 except ImportError:
-    from esp_test_utils.devices import attenuator
+    from esptest.devices import attenuator
 
 ALL_ATT_TYPES = [t.value for t in attenuator.AttType]
 

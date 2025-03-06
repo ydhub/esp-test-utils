@@ -8,12 +8,12 @@ def main() -> None:
     if sys.version_info.minor < 8:
         import pkg_resources
 
-        package_ver = pkg_resources.get_distribution('esp_test_utils').version
+        package_ver = pkg_resources.get_distribution('esptest').version
     else:
         from importlib.metadata import version
 
-        package_ver = version('esp_test_utils')
-    print(f'Installed esp_test_utils version: {package_ver}')
+        package_ver = version('esptest')
+    print(f'Installed esptest version: {package_ver}')
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@ import pathlib
 
 import pytest
 
-from esp_test_utils.iperf_utility.iperf_test import IperfDataParser
+from esptest.iperf_utility.iperf_test import IperfDataParser
 
 
 TEST_IPERF_LOG_PATH = pathlib.Path(__file__).parent / '_files'

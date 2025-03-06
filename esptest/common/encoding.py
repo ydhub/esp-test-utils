@@ -1,5 +1,4 @@
-from typing import Optional
-from typing import Union
+from typing import Optional, Union
 
 
 def to_str(data: Union[str, bytes], encoding: str = 'utf-8', errors: str = 'replace') -> str:

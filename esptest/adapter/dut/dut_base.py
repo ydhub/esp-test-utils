@@ -3,7 +3,7 @@ from typing import AnyStr
 from typing import Dict
 from typing import Union
 
-from ...basic.utils import mac_offset
+from ...network.mac import mac_offset
 from ..base_port import BasePort
 
 

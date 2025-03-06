@@ -11,9 +11,9 @@ import unittest
 import pytest
 import serial
 
-from esp_test_utils import dut_wrapper
-from esp_test_utils.esp_console.wifi_cmd import ConnectedInfo
-from esp_test_utils.esp_console.wifi_cmd import WifiCmd
+from esptest import dut_wrapper
+from esptest.esp_console.wifi_cmd import ConnectedInfo
+from esptest.esp_console.wifi_cmd import WifiCmd
 
 SERIAL_PORT = os.getenv('ESPPORT', '/dev/ttyUSB0')
 TEST_FILES_PATH = pathlib.Path(__file__).resolve().parent / '_files'

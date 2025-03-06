@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from esp_test_utils.basic.decorators import retry
+from esptest.common.decorators import retry
 
 
 def test_retry_on_result() -> None:

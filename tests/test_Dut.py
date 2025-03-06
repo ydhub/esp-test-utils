@@ -10,12 +10,12 @@ import unittest
 import pytest
 import serial
 
-from esp_test_utils import dut_wrapper
-from esp_test_utils.adapter.base_port import ExpectTimeout
-from esp_test_utils.adapter.base_port import RawPort
-from esp_test_utils.adapter.dut import DutPort
-from esp_test_utils.adapter.dut.serial_dut import SerialPort
-from esp_test_utils.devices.serial_dut import SerialDut
+from esptest import dut_wrapper
+from esptest.adapter.base_port import ExpectTimeout
+from esptest.adapter.base_port import RawPort
+from esptest.adapter.dut import DutPort
+from esptest.adapter.dut.serial_dut import SerialPort
+from esptest.devices.serial_dut import SerialDut
 
 
 def test_base_dut_isinstance() -> None:
