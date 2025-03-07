@@ -2,13 +2,11 @@ import io
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict
-from typing import Generator
+from typing import Dict, Generator
 
 import pytest
 
-from esp_test_utils.config import EnvConfig
-
+from esptest.config import EnvConfig
 
 DEF_TEST_CONFIG = """
 default:

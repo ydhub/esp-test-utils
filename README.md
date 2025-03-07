@@ -12,7 +12,7 @@ Package `esp-test-utils` is published to PyPI. Please install it via `pip`.
 - Create a file `test.py`
 
   ```python
-  from esp_test_utils.devices.SerialTools import get_all_serial_ports
+  from esptest.devices.SerialTools import get_all_serial_ports
 
   print('All serial ports on this computer:')
   for p in get_all_serial_ports():
