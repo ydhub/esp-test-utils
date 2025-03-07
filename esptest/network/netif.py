@@ -1,12 +1,12 @@
 import ipaddress
 import socket
 from socket import AddressFamily  # type hint
-from typing import Iterator
-from typing import List
+from typing import Iterator, List
 
 import psutil
 
 from ..logger import get_logger
+
 # netifaces needs a new maintaine
 # https://github.com/al45tair/netifaces/issues/78
 # use psutil instead

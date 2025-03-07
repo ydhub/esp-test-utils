@@ -1,9 +1,7 @@
 import logging
 import os
 import pathlib
-from typing import Any
-from typing import List
-from typing import Optional
+from typing import Any, List, Optional
 
 import yaml
 

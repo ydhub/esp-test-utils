@@ -7,7 +7,6 @@ from psutil._common import snicaddr
 
 from esptest.network import netif
 
-
 MOCK_NETIF_ADDRS = {
     'lo': [
         snicaddr(socket.AF_INET, '127.0.0.1', '255.0.0.0', None, None),

@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..adapter.dut.dut_base import DutPort
-from ..common import to_bytes
-from ..common import to_str
+from ..common import to_bytes, to_str
 from ..logger import get_logger
 
 logger = get_logger('esp_console')
@@ -33,7 +32,7 @@ class ConnectedInfo:
     ip6_site_local: str = ''
 
     def __str__(self) -> str:
-        s = 'WiFi Connected Info: ' f'ssid: {self.ssid}, ' f'bssid: {self.bssid}, ' f'channel: {self.channel}, '
+        s = f'WiFi Connected Info: ssid: {self.ssid}, bssid: {self.bssid}, channel: {self.channel}, '
         if self.aid != -1:
             s += f'aid: {self.aid}, '
         if self.security:

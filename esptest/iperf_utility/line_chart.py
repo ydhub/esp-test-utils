@@ -1,12 +1,7 @@
-from typing import Dict
-from typing import Optional
-from typing import Sequence
-from typing import TypeAlias
-from typing import Union
+from typing import Dict, Optional, Sequence, TypeAlias, Union
 
 from ..common.decorators import enhance_import_error_message
 from ..logger import get_logger
-
 
 XVarType: TypeAlias = Union[int, float, str]
 YVarType: TypeAlias = Union[Dict[str, Union[int, float, None]], Dict[str, int], Dict[str, float], Dict[str, None]]

@@ -1,12 +1,10 @@
-from typing import TYPE_CHECKING
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 from serial import Serial
 
 from ..adapter.dut.dut_base import DutPort
 from ..adapter.dut.serial_dut import SerialDutMixin
 from ..logger import get_logger
-
 
 if TYPE_CHECKING:
     MixinBase: TypeAlias = 'DutPort'

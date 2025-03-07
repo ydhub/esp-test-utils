@@ -6,21 +6,11 @@ import queue
 import re
 import threading
 import time
-from typing import AnyStr
-from typing import Callable
-from typing import Generic
-from typing import Optional
-from typing import overload
-from typing import Tuple
-from typing import Type
-from typing import TypeVar
-from typing import Union
+from typing import AnyStr, Callable, Generic, Optional, Tuple, Type, TypeVar, Union, overload
 
 import pexpect.spawnbase
 
-from ..common import generate_timestamp
-from ..common import to_bytes
-from ..common import to_str
+from ..common import generate_timestamp, to_bytes, to_str
 from ..logger import get_logger
 
 try:

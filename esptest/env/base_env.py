@@ -1,6 +1,4 @@
-from typing import Any
-from typing import List
-
+from typing import Any, List
 
 try:
     from typing import Self
@@ -8,8 +6,8 @@ except ImportError:
     from typing_extensions import Self
 
 
-from ..config import EnvConfig
 from ..adapter.dut import DutPort
+from ..config import EnvConfig
 
 
 class BaseEnv:

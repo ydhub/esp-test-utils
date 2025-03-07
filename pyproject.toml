@@ -100,7 +100,8 @@
 
 [tool.ruff]
     line-length    = 120                                                    # Specifies the maximum line length for ruff checks
-    lint.select         = ['E', 'F', 'W']                                        # Types of issues ruff should check for
+    lint.select    = ['E', 'F', 'W']                                        # Types of issues ruff should check for
+    lint.extend-select  = ["I"]                                                  # sort-imports
     target-version = "py311" # Specifies the target Python version for ruff checks
 
     [tool.ruff.format] # See formatter config options at https://docs.astral.sh/ruff/formatter

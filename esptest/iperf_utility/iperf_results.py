@@ -1,14 +1,6 @@
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import product
-from typing import Callable
-from typing import Dict
-from typing import Iterable
-from typing import List
-from typing import Optional
-from typing import Set
-from typing import TypeAlias
-from typing import Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, TypeAlias, Union
 
 try:
     from typing import Self

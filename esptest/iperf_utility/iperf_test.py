@@ -1,12 +1,9 @@
 import re
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 from ..adapter.dut import DutPort
 from ..logger import get_logger
-from .iperf_results import IperfResult
-from .iperf_results import IperfResultsRecord
-
+from .iperf_results import IperfResult, IperfResultsRecord
 
 logger = get_logger('iperf-util')
 

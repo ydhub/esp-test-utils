@@ -2,8 +2,7 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 try:
     # Run from `python -m esptest.tools.set_att`

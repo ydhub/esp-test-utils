@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from esptest.iperf_utility.iperf_results import IperfResult
-from esptest.iperf_utility.iperf_results import IperfResultsRecord
+from esptest.iperf_utility.iperf_results import IperfResult, IperfResultsRecord
 
 
 def test_iperf_result_to_dict() -> None:

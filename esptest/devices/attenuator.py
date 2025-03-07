@@ -1,11 +1,7 @@
 import re
 import time
 from contextlib import contextmanager
-from typing import Generator
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
+from typing import Generator, List, Optional, Tuple, Union
 
 try:
     from typing import Self
@@ -15,14 +11,13 @@ except ImportError:
 
 import enum
 
-
-import usb.core  # type: ignore
 import serial
+import usb.core  # type: ignore
 from serial.tools.list_ports_common import ListPortInfo
 
+from ..common.decorators import deprecated
 from ..logger import get_logger
 from .serial_tools import get_all_serial_ports
-from ..common.decorators import deprecated
 
 logger = get_logger('devices')
 

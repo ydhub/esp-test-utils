@@ -1,14 +1,7 @@
 import time
 import warnings
-from typing import Any
-from typing import Callable
-from typing import cast
-from typing import List
-from typing import Tuple
-from typing import Type
-from typing import TypeVar
-from typing import Union
 from functools import wraps
+from typing import Any, Callable, List, Tuple, Type, TypeVar, Union, cast
 
 from ..logger import get_logger
 

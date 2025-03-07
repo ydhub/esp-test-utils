@@ -11,8 +11,7 @@ import pytest
 import serial
 
 from esptest import dut_wrapper
-from esptest.adapter.base_port import ExpectTimeout
-from esptest.adapter.base_port import RawPort
+from esptest.adapter.base_port import ExpectTimeout, RawPort
 from esptest.adapter.dut import DutPort
 from esptest.adapter.dut.serial_dut import SerialPort
 from esptest.devices.serial_dut import SerialDut

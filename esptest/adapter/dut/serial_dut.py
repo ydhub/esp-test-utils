@@ -1,17 +1,11 @@
 import time
-from typing import Any
-from typing import AnyStr
-from typing import Dict
-from typing import Optional
-from typing import TYPE_CHECKING
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Any, AnyStr, Dict, Optional, TypeAlias
 
 import serial
 from serial import Serial
 
 from ...common import to_bytes
 from ...logger import get_logger
-
 
 if TYPE_CHECKING:
     from .dut_base import DutPort

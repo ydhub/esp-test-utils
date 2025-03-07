@@ -1,7 +1,4 @@
-from typing import Any
-from typing import AnyStr
-from typing import Dict
-from typing import Union
+from typing import Any, AnyStr, Dict, Union
 
 from ...network.mac import mac_offset
 from ..base_port import BasePort
