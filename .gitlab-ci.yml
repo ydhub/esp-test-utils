@@ -67,6 +67,28 @@ codebase-quality:
 
 
 # ------------------------------------------------------------------------------------------------------
+# Pages
+# ------------------------------------------------------------------------------------------------------
+pages:
+  stage: deploy
+  dependencies: []
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_REF_NAME == "feat/add_docs"'
+  artifacts:
+    paths:
+      - "public"
+    expire_in: 2 days
+  script:
+    - pip install -e '.[doc]'
+    - cd docs
+    - make html
+    - cp -r _build/html ../public
+  tags:
+    - build
+
+
+# ------------------------------------------------------------------------------------------------------
 # Publish - For github repositories, should use github actions for publishing packages
 # ------------------------------------------------------------------------------------------------------
 publish_packages_gitlab:

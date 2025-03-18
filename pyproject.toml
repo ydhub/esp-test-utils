@@ -8,7 +8,19 @@
     authors = [
         { name = "Chen Yudong", email = "chenyudong@espressif.com" },
     ]
-    classifiers = ["Programming Language :: Python :: 3"]
+    classifiers = [
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Topic :: Software Development :: Testing",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+    ]
     description = "ESP Test Utils"
     dynamic = ["version"]
     license = { file = "LICENSE" }
@@ -62,6 +74,13 @@
 
     [project.scripts]
         esp-copybin = "esptest.tools.copy_bin:main"
+
+    [project.urls]
+        Homepage = "https://github.com/ydc-0/esp-test-utils"
+        # Documentation = "https://readthedocs.org"
+        Repository = "https://github.com/ydc-0/esp-test-utils.git"
+        Issues = "https://github.com/ydc-0/esp-test-utils/issues"
+        Changelog = "https://github.com/ydc-0/esp-test-utils/blob/main/CHANGELOG.md"
 
 [tool.codespell]
     skip = 'tests/*'
