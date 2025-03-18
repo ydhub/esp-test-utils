@@ -138,13 +138,16 @@
 
 [tool.commitizen]
     annotated_tag            = true
-    bump_message             = "change(bump-version): bump release version to v$new_version"
+    bump_message             = "ci(bump-version): bump release version to v$new_version"
     name                     = "cz_customize"
     tag_format               = "v$version"
     update_changelog_on_bump = true
     version_provider         = "scm"
     [tool.commitizen.customize]
-        bump_map = { "change" = "MINOR", "feat" = "MINOR", "fix" = "PATCH", "refactor" = "PATCH", "remove" = "PATCH", "revert" = "PATCH" }
+        # ignore_invalid_commits = true
+        changelog_pattern = "^(?!Merge)"
+        commit_parser = "(?P<message>(change|feat|fix|refactor|remove|revert|BREAKING CHANGE).*)?"
+        bump_map = { "change" = "MINOR", "feat" = "MINOR", "fix" = "PATCH", "refactor" = "PATCH", "remove" = "PATCH", "revert" = "PATCH", "BREAKING CHANGE" = "MAJOR" }
         bump_pattern = "^(change|feat|fix|refactor|remove|revert)"
         change_type_order = [
             "change",
