@@ -74,6 +74,8 @@
 
     [project.scripts]
         esp-copybin = "esptest.tools.copy_bin:main"
+        esp-setatt = "esptest.tools.set_att:main"
+        esp-pipcheck = "esptest.tools.check_requirements:main"
 
     [project.urls]
         Homepage = "https://github.com/ydc-0/esp-test-utils"
