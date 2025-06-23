@@ -22,8 +22,7 @@ pre-commit-check:
   script:
     - pre-commit run --all-files
   tags:
-    - host_test
-    - internet
+    - pre-commit
 
 # ------------------------------------------------------------------------------------------------------
 # Pytest

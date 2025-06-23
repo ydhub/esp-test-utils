@@ -2,7 +2,7 @@ import argparse
 import logging
 
 try:
-    # Run from `python -m esptest.tools.set_att`
+    # Run from `python -m esptest.scripts.set_att`
     from ..devices import attenuator
 except ImportError:
     from esptest.devices import attenuator
@@ -10,8 +10,7 @@ except ImportError:
 ALL_ATT_TYPES = [t.value for t in attenuator.AttType]
 
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Set Attenuator',
     )
@@ -23,3 +22,8 @@ if __name__ == '__main__':
     att_dev = attenuator.find_att_dev(args.port, args.type)
     res = att_dev.set_att(args.att_value)
     logging.info(f'Set att {args.att_value} result: {res}')
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    main()

@@ -11,9 +11,9 @@ import pytest
 import serial
 
 from esptest import dut_wrapper
-from esptest.adapter.base_port import ExpectTimeout, RawPort
-from esptest.adapter.dut import DutPort
-from esptest.adapter.dut.serial_dut import SerialPort
+from esptest.adapter.dut import DutBase
+from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort
+from esptest.adapter.port.serial_port import SerialExt
 from esptest.devices.serial_dut import SerialDut
 
 
@@ -32,7 +32,7 @@ def test_base_dut_isinstance() -> None:
             self._data = b''
             return _data
 
-    def my_func(dut: DutPort) -> None:
+    def my_func(dut: DutBase) -> None:
         dut.write('aaa')
         dut.expect(re.compile(r'aaa'))
 
@@ -69,7 +69,7 @@ class TestSerialDut(unittest.TestCase):
             pass
 
     def test_serial_port_class(self) -> None:
-        ser = SerialPort(self.serial_port, 115200, timeout=0.001)
+        ser = SerialExt(self.serial_port, 115200, timeout=0.001)
         assert isinstance(ser, RawPort)
 
     def test_set_serial_after_init(self) -> None:
@@ -90,7 +90,7 @@ class TestSerialDut(unittest.TestCase):
         dut = SerialDut(ser, 'MyDut')
         fd_master = os.fdopen(self.master, 'rb')
         try:
-            assert isinstance(dut, DutPort)
+            assert isinstance(dut, BasePort)
             # Test write data to serial
             dut.write('aaa')
             _data = fd_master.read1(5)
@@ -107,8 +107,8 @@ class TestSerialDut(unittest.TestCase):
         check_thread = None
         ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
         with SerialDut(ser, 'MyDut') as dut:
-            assert dut._pexpect_proc  # pylint: disable=protected-access
-            check_thread = dut._pexpect_proc._read_thread  # pylint: disable=protected-access
+            assert dut._pexpect_spawn  # pylint: disable=protected-access
+            check_thread = dut._pexpect_spawn._read_thread  # pylint: disable=protected-access
             with os.fdopen(self.master, 'rb') as fd_master:
                 # Test write data to serial
                 dut.write('aaa')

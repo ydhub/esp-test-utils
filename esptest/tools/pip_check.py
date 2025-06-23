@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 try:
-    # Run from `python -m esptest.tools.pip_check`
+    # from import or `python -m esptest.tools.pip_check`
     from ..logger import get_logger
-except ImportError:
-    from esptest.logger import get_logger
 
-logger = get_logger('pip_check')
+    logger = get_logger('pip_check')
+except ImportError:
+    logger = logging.getLogger('pip_check')
 
 
 def simple_check_requirements(

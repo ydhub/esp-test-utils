@@ -15,6 +15,7 @@ gl-codequality.json
 *.egg-info/
 
 /log/
+/logs/
 dut.log
 
 # docs

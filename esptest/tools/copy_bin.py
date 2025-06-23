@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import List, Optional
 
 try:
-    # Run from `python -m esptest.tools.set_att`
+    # from import or `python -m esptest.tools.pip_check`
     from ..logger import get_logger
-except ImportError:
-    from esptest.logger import get_logger
 
-logger = get_logger('copy_bin')
+    logger = get_logger('copy_bin')
+except ImportError:
+    logger = logging.getLogger('copy_bin')
 
 
 class BuildFilesPatterns:
@@ -18,6 +18,7 @@ class BuildFilesPatterns:
         '*.bin',
         'bootloader/*.bin',
         'partition_table/*.bin',
+        'partition_table/*.csv',
         'flasher_args.json',
         'flash_project_args',
         'config/sdkconfig.json',
