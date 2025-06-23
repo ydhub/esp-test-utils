@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import functools
 import logging
 import os
@@ -6,20 +7,18 @@ import queue
 import re
 import threading
 import time
-from typing import AnyStr, Callable, Generic, Optional, Tuple, Type, TypeVar, Union, overload
+from dataclasses import dataclass
+from typing import overload
 
 import pexpect.spawnbase
 
-from ..common import generate_timestamp, to_bytes, to_str
-from ..logger import get_logger
+import esptest.common.compat_typing as t
 
-try:
-    from typing import Self
-except ImportError:
-    # ignore type hints: Self
-    pass
+from ...common import timestamp_str, to_bytes, to_str
+from ...common.decorators import deprecated
+from ...logger import get_logger
 
-LOGGER = get_logger('SerialDut')
+logger = get_logger('port')
 NEVER_MATCHED_MAGIC_STRING = 'o6K,Q.(w+~yr~N9R'
 
 
@@ -53,10 +52,25 @@ class RawPort(metaclass=abc.ABCMeta):
         raise NotImplementedError('Port class should implement this method')
 
 
-T = TypeVar('T', bound=RawPort)
+T = t.TypeVar('T', bound=RawPort)
 
 
-class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
+@dataclass
+class SpawnConfig:
+    name: str = ''  # mandatory
+    timeout: float = 30.0
+    read_interval: float = 0
+    # save rx log to log file
+    log_file: t.Optional[str] = None
+    # using logger.info for logs
+    logger: logging.Logger = logger
+    # callback  cb(data,name)
+    tx_callbacks: t.Optional[t.List[t.Callable[[bytes, str], None]]] = None
+    rx_callbacks: t.Optional[t.List[t.Callable[[bytes, str], None]]] = None
+    # TODO: monitors
+
+
+class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
     """Create a new class for pexpect with port read()/write() method.
 
     There's some reason that we can not use pyserial with pexpect.fdpexpect directly:
@@ -71,11 +85,11 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
 
     def __init__(
         self,
-        port: T,
+        raw_port: T,
         name: str = '',
-        log_file: Optional[str] = None,
+        log_file: t.Optional[str] = None,
         timeout: float = 30,
-        logger: logging.Logger = LOGGER,
+        **kwargs: t.Any,
     ) -> None:
         """PortSpawn for pexpect
 
@@ -86,13 +100,13 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
             logger (logging.Logger): Specific port logger for logging.
         """
         super().__init__(timeout=timeout)
-        assert isinstance(port, RawPort)
+        assert isinstance(raw_port, RawPort)
         self.name = name
-        self._port = port
-        if not self.name and hasattr(self.port, 'name'):
-            assert isinstance(self.port.name, str)
-            self.name = self.port.name
-        self.logger = logger
+        self._raw_port = raw_port
+        if not self.name and hasattr(self.raw_port, 'name'):
+            assert isinstance(self.raw_port.name, str)
+            self.name = self.raw_port.name
+        self.logger = kwargs.get('logger') or logger
         # Save serial logs to file
         self.log_file = log_file
 
@@ -105,16 +119,16 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
         self._read_thread = threading.Thread(target=self._read_incoming, name=f'Spawn_{self.name}')
         self._read_thread.daemon = True
         self._read_thread.start()
-        self.receive_callback: Optional[Callable[[str, AnyStr], None]] = None
+        self.receive_callback: t.Optional[t.Callable[[str, t.AnyStr], None]] = None
 
     @property
-    def port(self) -> T:
-        return self._port
+    def raw_port(self) -> T:
+        return self._raw_port
 
     @property
     def read_timeout(self) -> float:
-        if hasattr(self.port, 'read_timeout'):
-            _timeout = self.port.read_timeout
+        if hasattr(self.raw_port, 'read_timeout'):
+            _timeout = self.raw_port.read_timeout
             assert isinstance(_timeout, float)
             assert _timeout > 0
             return _timeout
@@ -147,7 +161,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
             self._last_write_log_time = time.time()
             if self.log_file:
                 with open(self.log_file, 'ab+') as f:
-                    _time_info = f'\n[{generate_timestamp()}]\n'.encode()
+                    _time_info = f'\n[{timestamp_str()}]\n'.encode()
                     f.write(_time_info)
                     f.write(data_to_write)
             else:
@@ -166,7 +180,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
             new_data = b''
             try:
                 # some port instances do not support changing read timeout, therefore use default timeout of the
-                new_data = self.port.read_bytes(timeout=self.read_timeout)
+                new_data = self.raw_port.read_bytes(timeout=self.read_timeout)
             except Exception as e:  # pylint: disable=W0718
                 self._log(to_bytes(f'PortRead {type(e)}: {str(e)}'), 'read')
                 self._write_port_log(to_bytes(f'SerialException: {str(e)}'))
@@ -181,17 +195,17 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
             # always check need write to file or not whether there's new data
             self._write_port_log(new_data)
 
-    def write(self, data: AnyStr) -> None:
-        self.port.write_bytes(to_bytes(data))
+    def write(self, data: t.AnyStr) -> None:
+        self.raw_port.write_bytes(to_bytes(data))
 
-    def read_nonblocking(self, size: int = 1, timeout: Optional[Union[int, float]] = None) -> bytes:
+    def read_nonblocking(self, size: int = 1, timeout: t.Optional[t.Union[int, float]] = None) -> bytes:
         """This method was used during expect(), reads data from serial output data cache.
 
         If the data cache is not empty, it will return immediately. Otherwise, waiting for new data.
 
         Args:
             size (int, optional): maximum size of returning data. Defaults to 1.
-            timeout (Union[int, float] | None, optional): maximum block time waiting for new data.
+            timeout (t.Union[int, float], optional): maximum block time waiting for new data.
 
         Returns:
             bytes: new serial output data.
@@ -209,7 +223,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
                 break
         self.logger.debug(self._data_cache)
         # Waiting for more data until timeout if there's no data cache.
-        # Any new data should be returned immediately.
+        # t.Any new data should be returned immediately.
         time_left = t0 + timeout - time.time()
         while not self._data_cache and time_left > 0:
             try:
@@ -239,7 +253,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, Generic[T]):
         self._line_cache = b''
 
 
-class BasePort(Generic[T]):
+class BasePort(t.Generic[T]):
     """A class to simply port methods for all devices / shell / sockets to similar usage
 
     - Create receive thread and pexpect spawn process for data read/expect
@@ -247,37 +261,67 @@ class BasePort(Generic[T]):
 
     """
 
-    EXPECT_TIMEOUT_EXCEPTIONS: Tuple[Type[Exception], ...] = (
+    EXPECT_TIMEOUT_EXCEPTIONS: t.Tuple[t.Type[Exception], ...] = (
         TimeoutError,
         pexpect.exceptions.ExceptionPexpect,
     )
-    INIT_START_PEXPECT_PROC: bool = True
-    DISABLE_PEXPECT_PROC: bool = False
+    INIT_START_REDIRECT_THREAD: bool = True
     PEXPECT_DEFAULT_TIMEOUT: float = 30
 
     def __init__(
         self,
-        port: T,
+        raw_port: T,
         name: str = '',
         log_file: str = '',
-        logger: Optional[logging.Logger] = None,
+        **kwargs: t.Any,
     ) -> None:
-        if port:
-            assert isinstance(port, RawPort)
-        self._port = port
+        self._raw_port = raw_port
         self._name = name
         self._log_file = log_file
+        self._kwargs = kwargs
+        # __enter__ and __exit__
+        self._close_redirect_thread_when_exit = True
+        if 'close_redirect_thread_when_exit' in kwargs:
+            self._close_redirect_thread_when_exit = kwargs['close_redirect_thread_when_exit']
+        # redirect thread (pexpect spawn)
         self.expect_timeout_exceptions = self.EXPECT_TIMEOUT_EXCEPTIONS
-        self.logger = logger or LOGGER
         self.timeout = self.PEXPECT_DEFAULT_TIMEOUT
+        self._pexpect_spawn: t.Optional[PortSpawn] = None
+        # logger
+        self._logger = self._get_logger()
+        # others
+        self._post_init()
+        self._start()
+        self._finalize_init()
 
-        self._pexpect_proc: Optional[PortSpawn] = None
-        if self.INIT_START_PEXPECT_PROC:
-            self.start_pexpect_proc()
+    def _get_logger(self) -> logging.Logger:
+        if 'logger' in self._kwargs and self._kwargs['logger']:
+            return self._kwargs['logger']  # type: ignore
+        logger_name = f'{self._name}' or 'port'
+        return get_logger(logger_name)
+
+    def _post_init(self) -> None:
+        """Extra initialize"""
+        pass  # pylint: disable=unnecessary-pass
+
+    def _start(self) -> None:
+        # TODO: logger file handler
+        if self.INIT_START_REDIRECT_THREAD:
+            assert self._raw_port
+            assert isinstance(self._raw_port, RawPort)
+            self.start_redirect_thread()
+
+    def _finalize_init(self) -> None:
+        pass
 
     @property
+    @deprecated('use raw_port instead port')
     def port(self) -> T:
-        return self._port  # type: ignore
+        return self._raw_port  # type: ignore
+
+    @property
+    def raw_port(self) -> T:
+        return self._raw_port  # type: ignore
 
     @property
     def name(self) -> str:
@@ -288,6 +332,10 @@ class BasePort(Generic[T]):
         self._name = value
         if self.spawn:
             self.spawn.name = value
+
+    @property
+    def logger(self) -> logging.Logger:
+        return self._logger
 
     def _init_log_file(self) -> None:
         if self.log_file:
@@ -309,25 +357,41 @@ class BasePort(Generic[T]):
         """Set Current dut log file."""
         if new_log_file == self._log_file:
             return
-        if self._pexpect_proc:
-            self._pexpect_proc.serial_log_file = new_log_file
+        if self._pexpect_spawn:
+            self._pexpect_spawn.serial_log_file = new_log_file
         self._log_file = new_log_file
 
     @property
-    def spawn(self) -> Optional[PortSpawn]:
+    def spawn(self) -> t.Optional[PortSpawn]:
         """Allow the use of pexpect spawn enhancements, if pexpect process is available"""
-        return self._pexpect_proc
+        return self._pexpect_spawn
 
-    def start_pexpect_proc(self) -> None:
-        if self.DISABLE_PEXPECT_PROC:
-            return
-        if self._pexpect_proc:
+    def start_redirect_thread(self) -> None:
+        """Start a new thread to read data from port and save to data cache."""
+        if self._pexpect_spawn:
             return
         self._init_log_file()
-        self._pexpect_proc = PortSpawn(self.port, self.name, self.log_file, self.PEXPECT_DEFAULT_TIMEOUT, self.logger)
+        self._pexpect_spawn = PortSpawn(
+            self.port, self.name, self.log_file, self.PEXPECT_DEFAULT_TIMEOUT, **self._kwargs
+        )
+
+    def stop_redirect_thread(self) -> bool:
+        """Stop the redirect thread and pexpect process."""
+        if not self._pexpect_spawn:
+            return False
+        self._init_log_file()
+        self._pexpect_spawn.stop()
+        return True
+
+    @contextlib.contextmanager
+    def disable_redirect_thread(self) -> t.Generator[None, None, None]:
+        stopped = self.stop_redirect_thread()
+        yield
+        if stopped:
+            self.start_redirect_thread()
 
     @staticmethod
-    def _handle_expect_timeout(func: Callable) -> Callable:
+    def _handle_expect_timeout(func: t.Callable) -> t.Callable:
         """Raise same type exception ExpectTimeout for ports from different frameworks"""
 
         @functools.wraps(func)
@@ -340,16 +404,16 @@ class BasePort(Generic[T]):
 
         return wrap
 
-    def write(self, data: AnyStr) -> None:
-        if self._pexpect_proc:
-            return self._pexpect_proc.write(data)
+    def write(self, data: t.AnyStr) -> None:
+        if self._pexpect_spawn:
+            return self._pexpect_spawn.write(data)
         raise NotImplementedError()
 
-    def write_line(self, data: AnyStr, end: str = '\n') -> None:
+    def write_line(self, data: t.AnyStr, end: str = '\n') -> None:
         return self.write(to_bytes(data, end))
 
     @_handle_expect_timeout
-    def expect_exact(self, pattern: Union[str, bytes], timeout: float) -> None:
+    def expect_exact(self, pattern: t.Union[str, bytes], timeout: float) -> None:
         """this is similar to expect(), but only uses plain string/bytes matching"""
         if self.spawn:
             pexpect_pattern = to_bytes(pattern)
@@ -376,15 +440,15 @@ class BasePort(Generic[T]):
         Can read all output data by pattern=re.compile('.+', re.DOTALL)
 
         Args:
-            pattern (Union[str, bytes, re.Pattern]): pattern to match
+            pattern (t.Union[str, bytes, re.Pattern]): pattern to match
             timeout (int, optional): seconds of waiting for new data if match failed. Defaults to 30s.
 
         Returns:
-            Optional[re.Match]: match result if the input pattern is re.Pattern
+            t.Optional[re.Match]: match result if the input pattern is re.Pattern
         """
-        if self._pexpect_proc:
+        if self._pexpect_spawn:
             if isinstance(pattern, (bytes, str)):
-                self._pexpect_proc.expect_exact(pattern, timeout=timeout)
+                self._pexpect_spawn.expect_exact(pattern, timeout=timeout)
                 return None
 
             assert isinstance(pattern, re.Pattern)
@@ -394,8 +458,8 @@ class BasePort(Generic[T]):
                 pexpect_pattern = re.compile(to_bytes(pattern.pattern), re_flags)
             else:
                 pexpect_pattern = pattern
-            self._pexpect_proc.expect(pexpect_pattern, timeout=timeout)
-            match = self._pexpect_proc.match
+            self._pexpect_spawn.expect(pexpect_pattern, timeout=timeout)
+            match = self._pexpect_spawn.match
             if isinstance(pattern.pattern, str) and isinstance(match, re.Match):
                 # convert the match result into string
                 match = pattern.match(to_str(match.group(0)))
@@ -425,17 +489,17 @@ class BasePort(Generic[T]):
             buffer = match.group(0)
         else:
             # flush spawn buffer
-            assert self._pexpect_proc
-            self._pexpect_proc.expect_exact(pexpect.TIMEOUT, timeout=0)
-            buffer = to_bytes(self._pexpect_proc.buffer)
+            assert self._pexpect_spawn
+            self._pexpect_spawn.expect_exact(pexpect.TIMEOUT, timeout=0)
+            buffer = to_bytes(self._pexpect_spawn.buffer)
         assert isinstance(buffer, bytes)
         return buffer
 
     def close(self) -> None:
-        if self._pexpect_proc:
-            self._pexpect_proc.stop()
+        if self._close_redirect_thread_when_exit and self._pexpect_spawn:
+            self._pexpect_spawn.stop()
 
-    def __enter__(self) -> 'Self':
+    def __enter__(self) -> 't.Self':
         return self
 
     def __exit__(self, exc_type, exc_value, trace) -> None:  # type: ignore

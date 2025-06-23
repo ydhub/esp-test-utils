@@ -5,10 +5,10 @@ import re
 from serial import Serial
 
 from esptest import dut_wrapper
-from esptest.adapter.dut import DutPort
+from esptest.adapter.dut import DutBase
 
 
-class JapDut(DutPort):
+class JapDut(DutBase):
     def jap_get_ip(self, ssid: str, password: str) -> str:
         # self.write_line('wifi_mode sta')
         # self.expect('OK')

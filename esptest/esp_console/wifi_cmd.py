@@ -4,7 +4,7 @@ import warnings
 from dataclasses import dataclass
 from typing import Optional
 
-from ..adapter.dut.dut_base import DutPort
+from ..adapter.dut.dut_base import DutBase
 from ..common import to_bytes, to_str
 from ..logger import get_logger
 
@@ -84,13 +84,13 @@ class WifiCmd:
     @classmethod
     def detect_version(
         cls,
-        dut: Optional[DutPort] = None,
+        dut: Optional[DutBase] = None,
         help_text: str = '',
     ) -> str:
         """Detect and update wifi-cmd version from the help log.
 
         Args:
-            dut (DutPort, optional): dut object, used to get help text.
+            dut (DutBase, optional): dut object, used to get help text.
             help_text (str, optional): use given help text rather than getting from dut.
 
         Returns:
@@ -129,7 +129,7 @@ class WifiCmd:
         """generate correct connect command
 
         Args:
-            sta_dut (DutPort): which dut
+            sta_dut (DutBase): which dut
             ssid (str): ssid of AP
             password (str, optional): password of AP. Defaults to ''.
             bssid (str, optional): specify bssid of AP. Defaults to None.
@@ -151,7 +151,7 @@ class WifiCmd:
     @classmethod
     def connect_to_ap(
         cls,
-        sta_dut: DutPort,
+        sta_dut: DutBase,
         conn_cmd: str,
         # How to check connection succeed
         timeout: int = 30,
@@ -163,7 +163,7 @@ class WifiCmd:
         """Connect to external AP and check connected
 
         Args:
-            sta_dut (DutPort): which dut
+            sta_dut (DutBase): which dut
             conn_cmd (str): connect command
             timeout (int, optional): maximum waiting time before connected. Defaults to 30 seconds.
             wait_ip (bool, optional): Do not return until got ip. Defaults to True.

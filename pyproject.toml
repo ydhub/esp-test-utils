@@ -40,8 +40,16 @@
 
     [project.optional-dependencies]
         # Optional Features
-        chart = [
+        idfci = [
             "pyecharts",
+            "python-gitlab",
+            "minio",
+        ]
+        qa = [
+            "pyecharts",
+            "python-gitlab",
+            "minio",
+            "esp-idf-monitor",
         ]
         # Test & Dev & Doc
         ci-quality = [
@@ -74,9 +82,12 @@
         ]
 
     [project.scripts]
+        esp-setatt = "esptest.scripts.set_att:main"
+        esp-listports = "esptest.scripts.list_ports:main"
+        esp-minitor = "esptest.scripts.monitor:main"
+        esp-downbin = "esptest.scripts.downbin:main"
         esp-copybin = "esptest.tools.copy_bin:main"
-        esp-setatt = "esptest.tools.set_att:main"
-        esp-pipcheck = "esptest.tools.check_requirements:main"
+        esp-pipcheck = "esptest.tools.pip_check:main"
 
     [project.urls]
         Homepage = "https://github.com/ydc-0/esp-test-utils"

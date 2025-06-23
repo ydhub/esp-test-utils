@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Optional
+
+import esptest.common.compat_typing as t
 
 
-def generate_timestamp(fmt: str = '%Y-%m-%d %H:%M:%S.%f', dt: Optional[datetime] = None) -> str:
+def timestamp_str(fmt: str = '%Y-%m-%d %H:%M:%S.%f', dt: t.Optional[datetime] = None) -> str:
     """Generates a timestamp string from datetime
 
     Args:
