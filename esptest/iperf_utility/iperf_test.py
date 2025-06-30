@@ -1,7 +1,7 @@
 import re
 from typing import List, Optional
 
-from ..adapter.dut import DutPort
+from ..adapter.dut import DutBase
 from ..logger import get_logger
 from .iperf_results import IperfResult, IperfResultsRecord
 
@@ -103,8 +103,8 @@ class IperfTestBaseUtility:
 
     def __init__(
         self,
-        dut: DutPort,
-        remote: Optional[DutPort] = None,
+        dut: DutBase,
+        remote: Optional[DutBase] = None,
     ):
         self.dut = dut
         self.remote = remote

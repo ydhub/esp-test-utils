@@ -6,7 +6,7 @@ except ImportError:
     from typing_extensions import Self
 
 
-from ..adapter.dut import DutPort
+from ..adapter.dut import DutBase
 from ..config import EnvConfig
 
 
@@ -21,7 +21,7 @@ class BaseEnv:
             self.env_config = EnvConfig(tag)
         else:
             self.env_config = EnvConfig(tag, config_file=config_file)
-        self._dut_list: List[DutPort] = []
+        self._dut_list: List[DutBase] = []
 
     def setup(self) -> None:
         pass

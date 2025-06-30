@@ -1,7 +1,7 @@
-from typing import Optional, Union
+import esptest.common.compat_typing as t
 
 
-def to_str(data: Union[str, bytes], encoding: str = 'utf-8', errors: str = 'replace') -> str:
+def to_str(data: t.Union[str, bytes], encoding: str = 'utf-8', errors: str = 'replace') -> str:
     """Turn `bytes` or `str` to `str`
 
     Args:
@@ -17,7 +17,9 @@ def to_str(data: Union[str, bytes], encoding: str = 'utf-8', errors: str = 'repl
     return data
 
 
-def to_bytes(data: Union[str, bytes], ending: Optional[Union[str, bytes]] = None, encoding: str = 'utf-8') -> bytes:
+def to_bytes(
+    data: t.Union[str, bytes], ending: t.Optional[t.Union[str, bytes]] = None, encoding: str = 'utf-8'
+) -> bytes:
     """Turn `bytes` or `str` to `bytes`
 
     Args:
