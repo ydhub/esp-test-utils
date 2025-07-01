@@ -14,6 +14,9 @@ default:
   image: ${CI_DOCKER_REGISTRY}/qa-python-env:2
 
 variables:
+  PUBLISH_DEV_VERSION:
+    value: ""
+    description: "publish package internal, please set to 'auto' or 'vX.X.X.devN'"
   GIT_CLEAN_FLAGS: '-ffdx -e .cache/' # Ensure cache isn't deleted when the repository is cleaned.
 
 pre-commit-check:
@@ -95,6 +98,9 @@ publish_packages_gitlab:
   dependencies: []
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+(\.\d+)?($|-)/'
+    # From web, format  auto: v0.0.0-dev0+commit
+    - if: '$CI_PIPELINE_SOURCE == "web" && $PUBLISH_DEV_VERSION == "auto"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $PUBLISH_DEV_VERSION =~ /^v\d+\.\d+(\.\d+)?/'
   before_script:
     - pip install -e '.[dev]'
     - pip install twine
@@ -104,7 +110,14 @@ publish_packages_gitlab:
     TWINE_PASSWORD: ${CI_JOB_TOKEN}
     TWINE_USERNAME: gitlab-ci-token
   script:
+    - python tools/ci/check_dev_version.py
+    - |
+      if [[ -n "$PUBLISH_DEV_VERSION" ]] && [[ "$PUBLISH_DEV_VERSION" != "auto" ]]; then
+        # git tag ${PUBLISH_DEV_VERSION} -m "internal dev tag: ${PUBLISH_DEV_VERSION}"
+        export SETUPTOOLS_SCM_PRETEND_VERSION=$PUBLISH_DEV_VERSION
+      fi
     - python -m build
+    - git log -1
     # upload to gitlab Package Registry
     - python -m twine upload --repository-url ${GITLAB_HTTPS_SERVER}/api/v4/projects/${CI_PROJECT_ID}/packages/pypi --verbose dist/*
   tags:
@@ -115,6 +128,7 @@ publish_pypi:
   extends:
     - publish_packages_gitlab
   rules:
+    # should be published by github actions
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+(\.\d+)?($|-)/'
       when: manual
   needs:
