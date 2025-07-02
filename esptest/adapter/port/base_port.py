@@ -16,6 +16,7 @@ import esptest.common.compat_typing as t
 
 from ...common import timestamp_str, to_bytes, to_str
 from ...common.decorators import deprecated
+from ...interface.port import PortInterface
 from ...logger import get_logger
 
 logger = get_logger('port')
@@ -129,9 +130,9 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
     def read_timeout(self) -> float:
         if hasattr(self.raw_port, 'read_timeout'):
             _timeout = self.raw_port.read_timeout
-            assert isinstance(_timeout, float)
+            assert isinstance(_timeout, (float, int))
             assert _timeout > 0
-            return _timeout
+            return float(_timeout)
         return self.DEFAULT_READ_INTERVAL
 
     @property
@@ -253,7 +254,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
         self._line_cache = b''
 
 
-class BasePort(t.Generic[T]):
+class BasePort(PortInterface, t.Generic[T]):
     """A class to simply port methods for all devices / shell / sockets to similar usage
 
     - Create receive thread and pexpect spawn process for data read/expect
@@ -341,9 +342,9 @@ class BasePort(t.Generic[T]):
         if self.log_file:
             os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
             with open(self.log_file, 'ab+') as f:
-                f.write(f'--------- Saving {self.name}:{self.port} logs to this file --------\n'.encode())
+                f.write(f'--------- Saving {self.name}:{str(self.raw_port)} logs to this file --------\n'.encode())
         else:
-            self.logger.debug(f'do not save {self.name}:{self.port} logs to file')
+            self.logger.debug(f'do not save {self.name}:{str(self.raw_port)} logs to file')
 
     @property
     def log_file(self) -> str:
@@ -372,7 +373,7 @@ class BasePort(t.Generic[T]):
             return
         self._init_log_file()
         self._pexpect_spawn = PortSpawn(
-            self.port, self.name, self.log_file, self.PEXPECT_DEFAULT_TIMEOUT, **self._kwargs
+            self.raw_port, self.name, self.log_file, self.PEXPECT_DEFAULT_TIMEOUT, **self._kwargs
         )
 
     def stop_redirect_thread(self) -> bool:
@@ -381,6 +382,7 @@ class BasePort(t.Generic[T]):
             return False
         self._init_log_file()
         self._pexpect_spawn.stop()
+        self._pexpect_spawn = None
         return True
 
     @contextlib.contextmanager
@@ -391,7 +393,7 @@ class BasePort(t.Generic[T]):
             self.start_redirect_thread()
 
     @staticmethod
-    def _handle_expect_timeout(func: t.Callable) -> t.Callable:
+    def handle_expect_timeout(func: t.Callable) -> t.Callable:
         """Raise same type exception ExpectTimeout for ports from different frameworks"""
 
         @functools.wraps(func)
@@ -412,7 +414,7 @@ class BasePort(t.Generic[T]):
     def write_line(self, data: t.AnyStr, end: str = '\n') -> None:
         return self.write(to_bytes(data, end))
 
-    @_handle_expect_timeout
+    @handle_expect_timeout
     def expect_exact(self, pattern: t.Union[str, bytes], timeout: float) -> None:
         """this is similar to expect(), but only uses plain string/bytes matching"""
         if self.spawn:
@@ -429,7 +431,7 @@ class BasePort(t.Generic[T]):
     @overload
     def expect(self, pattern: re.Pattern[bytes], timeout: float = 30) -> re.Match[bytes]: ...
 
-    @_handle_expect_timeout
+    @handle_expect_timeout
     def expect(self, pattern, timeout=PEXPECT_DEFAULT_TIMEOUT):  # type: ignore
         """This seeks through the stream until a pattern is matched.
 

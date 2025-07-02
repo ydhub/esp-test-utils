@@ -4,6 +4,9 @@
 
 [tool.setuptools_scm]
 
+[tool.setuptools.packages.find]
+include = ["esptest"]
+
 [project]
     authors = [
         { name = "Chen Yudong", email = "chenyudong@espressif.com" },

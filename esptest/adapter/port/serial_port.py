@@ -22,7 +22,7 @@ class SerialExt(Serial):
     @property
     def read_timeout(self) -> float:
         # For PortSpawn
-        return super().timeout  # type: ignore
+        return super().timeout or 0.001  # type: ignore
 
     def read_bytes(self, timeout: float = 0.001) -> bytes:
         # For PortSpawn
@@ -35,6 +35,10 @@ class SerialExt(Serial):
     def write_bytes(self, data: AnyStr) -> None:
         # For PortSpawn
         super().write(to_bytes(data))
+
+    def __str__(self) -> str:
+        """SerialPort<device=xxx,baudrate=xxx,timeout=xxx>"""
+        return f'SerialPort<device={self.port},baudrate={self.baudrate},timeout={self.timeout}>'
 
 
 class SerialPortMixin(MixinBase):

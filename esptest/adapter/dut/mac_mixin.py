@@ -5,7 +5,6 @@ from ...network.mac import mac_offset
 
 class MacMixin:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
         self._mac: str = '00:00:00:00:00:00:00:00'
         self._base_mac: str = '00:00:00:00:00:00'
         self._sta_mac: str = ''
@@ -13,6 +12,7 @@ class MacMixin:
         self._bt_mac: str = ''
         self._eth_mac: str = ''
         self._i154_mac: str = ''
+        super().__init__(*args, **kwargs)
 
     @property
     def mac(self) -> str:

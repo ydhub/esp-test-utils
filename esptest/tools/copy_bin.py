@@ -1,6 +1,8 @@
 import argparse
 import logging
+import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,6 +13,8 @@ try:
     logger = get_logger('copy_bin')
 except ImportError:
     logger = logging.getLogger('copy_bin')
+
+IDF_PATH = os.getenv('IDF_PATH', '')
 
 
 class BuildFilesPatterns:
@@ -75,6 +79,19 @@ def copy_bin_to_new_path(
                 to_file.parent.mkdir(parents=True)
             logging.debug(f'Copying file {relative_path}')
             shutil.copy(_file, to_path / relative_path)
+
+    # parse 'partition-table.bin'
+    if IDF_PATH:
+        part_csv = Path(to_path) / 'partition_table' / 'partition-table.csv'
+        part_bin = Path(to_path) / 'partition_table' / 'partition-table.bin'
+        parttool = Path(IDF_PATH) / 'components' / 'partition_table' / 'gen_esp32part.py'
+        if not part_csv.is_file() and part_bin.is_file():
+            assert parttool.is_file(), 'Can not find gen_esp32part.py'
+            try:
+                _cmd = f'python {str(parttool.absolute())} {str(part_bin)} {str(part_csv)}'
+                subprocess.check_call(_cmd, shell=True)
+            except subprocess.SubprocessError as e:
+                logger.error(f'Failed to gen partition-table.csv: {str(e)}')
 
 
 def main() -> None:
