@@ -1,17 +1,21 @@
 import logging
 import os
+import re
 from dataclasses import dataclass
 from logging import Formatter
 from pathlib import Path
+from typing import overload
+
+from esptool.loader import ESPLoader
 
 import esptest.common.compat_typing as t
 
 from ...common.timestamp import timestamp_str
-from ...devices.serial_tools import compute_serial_port
+from ...interface.dut import DutInterface
+from ...interface.port import PortInterface
 from ...logger import get_logger
-from ...utility.parse_bin_path import get_baud_from_bin_path
+from ...utility.parse_bin_path import ParseBinPath
 from ..port.base_port import BasePort, RawPort
-from ..port.serial_port import SerialExt
 
 logger = get_logger('dutbase')
 
@@ -66,54 +70,42 @@ class DutConfig:
         assert self.name, 'DutConfig "name" must be set'
 
 
-class DutBase(BasePort):
-    """Add dut related methods to Port"""
+class DutBase(DutInterface):
+    """A base Dut class"""
 
-    def __init__(self, dut_config: DutConfig, *args: t.Any, **kwargs: t.Any) -> None:
+    BASE_PORT_PROXY_METHODS = list(PortInterface.__abstractmethods__)
+
+    def __init__(self, *, dut_config: DutConfig, **kwargs: t.Any) -> None:
         # args and kwargs may be used by mixins
         self._dut_config = dut_config
-        self._args = args  # ignore args
         self._kwargs = kwargs
-        # __enter__ and __exit__
-        self._close_redirect_thread_when_exit = True
-        self._close_raw_port_when_exit = True
-        self._close_download_port_when_exit = False
-        # create base port / log port
-        # init base class
-        _raw_port = self._create_raw_port()
-        # do not pass dut_config/name/log_file to parent classes
-        super().__init__(_raw_port, **self._kwargs)
+        self._raw_port: t.Optional[RawPort] = None
+        self._base_port_proxy: t.Optional[BasePort] = None
+        self._post_init()
+        self._start()
 
     def _post_init(self) -> None:
         self._name = self._dut_config.name
-        super()._post_init()
+
+    def _start(self) -> None:
+        pass
 
     @property
     def dut_config(self) -> DutConfig:
         return self._dut_config
 
-    def _create_raw_port(self) -> RawPort:
-        _config = self._dut_config
-        _raw_port = None
-        if _config.opened_port:
-            if isinstance(_config.opened_port, RawPort):
-                _raw_port = _config.opened_port
-                self._close_raw_port_when_exit = False
-                return _raw_port
-            # TODO: create from BasePort
-            raise TypeError(f'Can not create dut from {type(_config.opened_port)}')
-        # create serial port
-        assert _config.device, 'No device provided in DutConfig'
-        _device = compute_serial_port(_config.device, strict=True)
-        _baudrate = _config.baudrate or get_baud_from_bin_path(_config.bin_path) or 115200
-        self._close_raw_port_when_exit = True
-        return SerialExt(port=_device, baudrate=_baudrate, **(_config.serial_configs or {}))
+    @property
+    def target(self) -> str:
+        # child class should implement this method
+        return 'unknown'
+
+    @property
+    def esp(self) -> ESPLoader:
+        """Not all Dut support this method"""
+        raise NotImplementedError()
 
     def close(self) -> None:
-        if self._close_redirect_thread_when_exit:
-            self.stop_redirect_thread()
-        if self._close_raw_port_when_exit:
-            self._raw_port.close()
+        pass
 
     def __enter__(self) -> 't.Self':
         return self
@@ -121,41 +113,76 @@ class DutBase(BasePort):
     def __exit__(self, exc_type, exc_value, trace) -> None:  # type: ignore
         self.close()
 
-    # Attributes needed by bin path
+    # bin path related methods
     @property
     def bin_path(self) -> t.Union[str, Path]:
-        return self._dut_config.bin_path
+        return self.dut_config.bin_path
 
     @property
     def sdkconfig(self) -> t.Dict[str, t.Any]:
-        raise NotImplementedError()
+        if not self.bin_path:
+            raise FileNotFoundError('Can not get sdkconfig, bin_path is not set.')
+        return ParseBinPath(self.bin_path).sdkconfig
 
-    @property
-    def target(self) -> str:
-        raise NotImplementedError()
-
-    @property
-    def partition_table(self) -> t.Dict[str, t.Any]:
-        raise NotImplementedError()
-
-    # Serial Specific
-    def reconfigure(self) -> bool:
-        raise NotImplementedError()
-
+    # esptool related methods
     def hard_reset(self) -> None:
         raise NotImplementedError()
 
-    # EspTool Specific
-    def flash(self, bin_path: str = '') -> None:
+    def flash(self, erase_nvs: bool = True) -> None:
         raise NotImplementedError()
 
-    def flash_partition(self, part: t.Union[int, str], bin_path: str = '') -> None:
+    def flash_partition(self, part: t.Union[int, str], bin_file: str = '') -> None:
         raise NotImplementedError()
 
-    def flash_nvs(self, bin_path: str = '') -> None:
+    def dump_flash(self, part: t.Union[int, str], bin_file: str, size: int = 0) -> None:
         raise NotImplementedError()
 
-    def dump_flash(self, part: t.Union[int, str], bin_path: str, size: int = 0) -> None:
+    # port base methods, use the proxy method if possible, otherwise, child class should implement them
+    def __getattribute__(self, name: str) -> t.Any:
+        if object.__getattribute__(self, '_base_port_proxy'):
+            if name in object.__getattribute__(self, 'BASE_PORT_PROXY_METHODS'):
+                return getattr(self._base_port_proxy, name)
+        return object.__getattribute__(self, name)
+
+    @property
+    def raw_port(self) -> t.Any:
         raise NotImplementedError()
 
-    # More extra methods may be implemented
+    @property
+    def name(self) -> t.Any:
+        return self.dut_config.name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        raise NotImplementedError()
+
+    def write(self, data: t.AnyStr) -> None:
+        raise NotImplementedError()
+
+    def write_line(self, data: t.AnyStr, end: str = '\n') -> None:
+        raise NotImplementedError()
+
+    @overload
+    def expect(self, pattern: str, timeout: float = 30) -> None: ...
+    @overload
+    def expect(self, pattern: bytes, timeout: float = 30) -> None: ...
+    @overload
+    def expect(self, pattern: re.Pattern[str], timeout: float = 30) -> re.Match[str]: ...
+    @overload
+    def expect(self, pattern: re.Pattern[bytes], timeout: float = 30) -> re.Match[bytes]: ...
+
+    def expect(self, pattern, timeout=0):  # type: ignore
+        raise NotImplementedError()
+
+    @property
+    def data_cache(self) -> str:
+        return self.read_all_data(flush=False)
+
+    def flush_data(self) -> str:
+        return self.read_all_data(flush=True)
+
+    def read_all_data(self, flush: bool = True) -> str:
+        raise NotImplementedError()
+
+    def read_all_bytes(self, flush: bool = False) -> bytes:
+        raise NotImplementedError()

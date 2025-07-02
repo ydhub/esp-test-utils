@@ -68,6 +68,20 @@ class ParseBinPath:
         self.chip: str = self.flasher_args['extra_esptool_args'].get('chip', 'auto')
 
     @property
+    def sdkconfig(self) -> t.Dict[str, t.Any]:
+        """
+        Returns:
+            sdkconfig dict
+        """
+        sdkconfig_json = Path(self.bin_path) / 'config' / 'sdkconfig.json'
+        if not sdkconfig_json.is_file():
+            raise FileNotFoundError(f'Can not get sdkconfig, no such file: {str(sdkconfig_json)} ')
+        data: t.Dict[str, t.Any] = {}
+        with open(sdkconfig_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+
+    @property
     def parttool_path(self) -> str:
         """
         Returns:

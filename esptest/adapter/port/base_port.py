@@ -16,6 +16,7 @@ import esptest.common.compat_typing as t
 
 from ...common import timestamp_str, to_bytes, to_str
 from ...common.decorators import deprecated
+from ...interface.port import PortInterface
 from ...logger import get_logger
 
 logger = get_logger('port')
@@ -253,7 +254,7 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
         self._line_cache = b''
 
 
-class BasePort(t.Generic[T]):
+class BasePort(PortInterface, t.Generic[T]):
     """A class to simply port methods for all devices / shell / sockets to similar usage
 
     - Create receive thread and pexpect spawn process for data read/expect

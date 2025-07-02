@@ -11,12 +11,9 @@ from ...devices.serial_tools import compute_serial_port, get_all_serial_ports
 
 if t.TYPE_CHECKING:
     # Do not import DutBase
-    from ..port.base_port import BasePort
-    from .dut_base import DutConfig
+    from .dut_base import DutBase
 
-    class BaseProtocol(BasePort):
-        @property
-        def dut_config(self) -> DutConfig: ...
+    BaseProtocol = DutBase
 else:
     BaseProtocol = object
 
@@ -27,6 +24,10 @@ class EspSerial:
     def __init__(self, esp: esptool.ESPLoader) -> None:
         self._esp = esp
         self._serial: serial.Serial = esp._port
+
+    @property
+    def esp(self) -> esptool.ESPLoader:
+        return self._esp
 
     @property
     def read_timeout(self) -> float:
@@ -77,6 +78,6 @@ class EspMixin(BaseProtocol):
 
     @property
     def esp(self) -> esptool.ESPLoader:
-        if isinstance(self._raw_port, EspSerial):
-            return self._raw_port
+        if isinstance(self.raw_port, EspSerial):
+            return self.raw_port
         return None

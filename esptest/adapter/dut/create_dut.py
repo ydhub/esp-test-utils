@@ -19,7 +19,7 @@ class _DutFactory:
     @classmethod
     def create(cls, dut_config: DutConfig, dut_cls: t.Type[T]) -> T:
         with cls.LOCK:
-            return dut_cls(dut_config)
+            return dut_cls(dut_config=dut_config)
 
 
 def create_dut(dut_config: DutConfig, cls: t.Optional[t.Type[T]] = None) -> T:
