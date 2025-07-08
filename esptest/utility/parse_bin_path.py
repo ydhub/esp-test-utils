@@ -5,6 +5,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import esptest.common.compat_typing as t
@@ -68,6 +69,20 @@ class ParseBinPath:
         self.chip: str = self.flasher_args['extra_esptool_args'].get('chip', 'auto')
 
     @property
+    def sdkconfig(self) -> t.Dict[str, t.Any]:
+        """
+        Returns:
+            sdkconfig dict
+        """
+        sdkconfig_json = Path(self.bin_path) / 'config' / 'sdkconfig.json'
+        if not sdkconfig_json.is_file():
+            raise FileNotFoundError(f'Can not get sdkconfig, no such file: {str(sdkconfig_json)} ')
+        data: t.Dict[str, t.Any] = {}
+        with open(sdkconfig_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+
+    @property
     def parttool_path(self) -> str:
         """
         Returns:
@@ -81,9 +96,9 @@ class ParseBinPath:
                 return os.path.realpath(_parttool)
         return ''
 
-    def parse_flash_args(self) -> t.Dict[str, t.Any]:
-        """Parse flash args from flasher_args.json"""
-        flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
+    @staticmethod
+    @lru_cache()
+    def _parse_flash_args(flasher_args_file: t.Union[str, Path]) -> t.Dict[str, t.Any]:
         _flasher_args = {}
         try:
             with open(str(flasher_args_file), 'r', encoding='utf-8') as f:
@@ -92,13 +107,18 @@ class ParseBinPath:
             _flasher_args = {}
         return _flasher_args
 
+    def parse_flash_args(self) -> t.Dict[str, t.Any]:
+        """Parse flash args from flasher_args.json"""
+        flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
+        return self._parse_flash_args(flasher_args_file)
+
     def _gen_partition_table(self) -> None:
         part_csv = Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
         part_bin = Path(self.bin_path) / 'partition_table' / 'partition-table.bin'
         if self.parttool_path and not part_csv.is_file() and part_bin.is_file():
             try:
                 _cmd = f'python {self.parttool_path} {str(part_bin)} {str(part_csv)}'
-                subprocess.check_call(_cmd)
+                subprocess.check_call(_cmd, shell=True)
             except subprocess.SubprocessError as e:
                 logger.error(f'Failed to gen partition-table.csv: {str(e)}')
 

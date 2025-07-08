@@ -45,6 +45,7 @@ class DownBinTool:
         parttool: str = '',
         esptool: str = '',
         erase_nvs: bool = True,
+        force_no_stub: bool = True,
     ):  # pylint: disable=too-many-positional-arguments,too-many-arguments
         self.bin_path = bin_path
         self.port = compute_serial_port(port, strict=True)
@@ -55,11 +56,14 @@ class DownBinTool:
         self.esptool = esptool or 'python -m esptool'
         self.erase_nvs = erase_nvs
         self.bin_parser = _get_bin_parser(bin_path, parttool)
+        self.force_no_stub = force_no_stub
 
     def download(self) -> None:
         download_log = ''
         for baud in self.baud_list:
             args = self.esptool.split()
+            if self.force_no_stub:
+                args += ['--no-stub']
             args += ['-p', self.port]
             args += ['-b', f'{baud}']
             args += self.bin_parser.flash_bin_args(erase_nvs=self.erase_nvs)
