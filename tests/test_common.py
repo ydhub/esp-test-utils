@@ -7,6 +7,7 @@ import pytest
 
 from esptest.common.encoding import to_bytes, to_str
 from esptest.common.generator import get_next_index
+from esptest.common.shell import RunCmdError, run_cmd
 from esptest.common.timestamp import timestamp_slug, timestamp_str
 
 
@@ -46,6 +47,16 @@ def test_to_str_to_bytes() -> None:
     res = to_str(bytes_data)
     assert res == '��'
     assert to_bytes(res) == b'\xef\xbf\xbd\xef\xbf\xbd'
+
+
+def test_run_cmd() -> None:
+    output = run_cmd('echo hello')
+    assert output == 'hello\n'
+    output = run_cmd(['echo', 'world'])
+    assert output == 'world\n'
+    with pytest.raises(RunCmdError) as e:
+        run_cmd('invalid_command')
+    assert 'not found' in str(e) and 'invalid_command' in str(e)
 
 
 if __name__ == '__main__':

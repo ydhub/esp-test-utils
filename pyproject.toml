@@ -48,11 +48,12 @@ include = ["esptest"]
             "python-gitlab",
             "minio",
         ]
-        qa = [
+        all = [
             "pyecharts",
             "python-gitlab",
             "minio",
             "esp-idf-monitor",
+            "scapy",
         ]
         # Test & Dev & Doc
         ci-quality = [

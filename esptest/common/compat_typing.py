@@ -16,6 +16,7 @@ from typing import (
     List,
     Optional,
     Protocol,
+    Set,
     Tuple,
     Type,
     TypeVar,
