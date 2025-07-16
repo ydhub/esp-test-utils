@@ -219,7 +219,7 @@ class TestSerialDut(unittest.TestCase):
             self._close_file_io(fd_master)
 
     def test_serial_dut_log(self) -> None:
-        ser_read_timeout = 0.005
+        ser_read_timeout = 0.01
         ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
         log_file = tempfile.mktemp()
         dut = SerialDut(ser, 'MyDut', log_file=log_file)

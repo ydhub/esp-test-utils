@@ -48,11 +48,12 @@ include = ["esptest"]
             "python-gitlab",
             "minio",
         ]
-        qa = [
+        all = [
             "pyecharts",
             "python-gitlab",
             "minio",
             "esp-idf-monitor",
+            "scapy",
         ]
         # Test & Dev & Doc
         ci-quality = [
@@ -87,17 +88,17 @@ include = ["esptest"]
     [project.scripts]
         esp-setatt = "esptest.scripts.set_att:main"
         esp-listports = "esptest.scripts.list_ports:main"
-        esp-minitor = "esptest.scripts.monitor:main"
+        esp-monitor = "esptest.scripts.monitor:main"
         esp-downbin = "esptest.scripts.downbin:main"
         esp-copybin = "esptest.tools.copy_bin:main"
         esp-pipcheck = "esptest.tools.pip_check:main"
 
     [project.urls]
-        Homepage = "https://github.com/ydc-0/esp-test-utils"
+        Homepage = "https://github.com/ydhub/esp-test-utils"
         # Documentation = "https://readthedocs.org"
-        Repository = "https://github.com/ydc-0/esp-test-utils.git"
-        Issues = "https://github.com/ydc-0/esp-test-utils/issues"
-        Changelog = "https://github.com/ydc-0/esp-test-utils/blob/main/CHANGELOG.md"
+        Repository = "https://github.com/ydhub/esp-test-utils.git"
+        Issues = "https://github.com/ydhub/esp-test-utils/issues"
+        Changelog = "https://github.com/ydhub/esp-test-utils/blob/main/CHANGELOG.md"
 
 [tool.codespell]
     skip = 'tests/*'

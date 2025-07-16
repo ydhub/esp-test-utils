@@ -8,7 +8,7 @@ YVarType: TypeAlias = Union[Dict[str, Union[int, float, None]], Dict[str, int], 
 logger = get_logger('iperf-util')
 
 
-@enhance_import_error_message('please install pyecharts or "pip install esp-test-utils[chart]"')
+@enhance_import_error_message('please install pyecharts or "pip install esp-test-utils[all]"')
 def draw_line_chart_basic(  # pylint: disable=too-many-positional-arguments
     file_name: str,
     title: str,

@@ -6,6 +6,8 @@ import pytest
 from psutil._common import snicaddr
 
 from esptest.network import netif
+from esptest.network.mac import mac_offset
+from esptest.network.nic import Nic
 
 MOCK_NETIF_ADDRS = {
     'lo': [
@@ -56,6 +58,18 @@ def test_netif_vs_mac(patch_psutil_addrs: mock.Mock) -> None:
     assert interface == 'if1'
     mac = netif.get_mac_by_interface('if1')
     assert mac == '11:22:33:44:55:66'
+
+
+def test_mac_offset() -> None:
+    mac = '00:01:ff:ff:ff:fe'
+    assert mac_offset(mac, 1) == '00:01:ff:ff:ff:ff'
+    assert mac_offset(mac, 2) == '00:02:00:00:00:00'
+    assert mac_offset(mac, -1) == '00:01:ff:ff:ff:fd'
+
+
+def test_nic_lo_init() -> None:
+    lo = Nic('lo')
+    assert lo.iface == 'lo'
 
 
 if __name__ == '__main__':

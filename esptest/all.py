@@ -7,4 +7,5 @@ from .adapter.dut.esp_dut import EspDut
 from .adapter.dut.wrapper import dut_wrapper
 from .adapter.port.serial_port import SerialPort
 from .common.encoding import to_bytes, to_str
+from .common.shell import run_cmd
 from .logger import get_logger
