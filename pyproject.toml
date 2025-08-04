@@ -37,6 +37,7 @@ include = ["esptest"]
         "PyYAML",
         "pexpect",
         "pyusb",
+        "esptool",
         "packaging",
         "typing_extensions; python_version < '3.11'"
     ]
