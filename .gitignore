@@ -14,10 +14,13 @@ gl-codequality.json
 /dist/
 *.egg-info/
 
+# tests
 /log/
 /logs/
 dut_logs/
 dut.log
+tests/utility/_files/test-bin
+
 
 # docs
 /docs/*.rst

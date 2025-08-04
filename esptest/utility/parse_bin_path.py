@@ -12,19 +12,29 @@ import esptest.common.compat_typing as t
 
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
+CONSOLE_BAUD_KEYS = [
+    'ESP_CONSOLE_UART_BAUDRATE',
+    'CONSOLE_UART_BAUDRATE',
+    'ESPTOOLPY_MONITOR_BAUD',
+]
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
     """Get baudrate from binary path, if available. return 0 if failed"""
+
     if not bin_path:
         return 0  # Failed to get baudrate
+    if not os.path.isdir(bin_path):
+        logger.error(f'bin_path is set but it is not a Directory: {bin_path}')
+        raise NotADirectoryError(f'bin_path is set but it is not a Directory: {bin_path}')
     try:
         sdkconfig_file = Path(bin_path) / 'sdkconfig'
         with open(str(sdkconfig_file), 'r', encoding='utf-8') as f:
             data = f.read()
-            match = re.search(r'CONSOLE_UART_BAUDRATE=(\d+)', data)
-            if match:
-                return int(match.group(1))
+            for config_name in CONSOLE_BAUD_KEYS:
+                match = re.search(rf'CONFIG_{config_name}=(\d+)', data)
+                if match:
+                    return int(match.group(1))
     except OSError:
         # FileExistsError, FileNotFoundError, etc.
         pass
@@ -32,7 +42,7 @@ def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
         sdkconfig_json_file = Path(bin_path) / 'config' / 'sdkconfig.json'
         with open(str(sdkconfig_json_file), 'r', encoding='utf-8') as f:
             json_data: t.Dict[str, t.Any] = json.load(f)
-            for key in ['ESP_CONSOLE_UART_BAUDRATE', 'CONSOLE_UART_BAUDRATE']:
+            for key in CONSOLE_BAUD_KEYS:
                 if key in json_data.keys():
                     return int(json_data[key])
     except OSError:
