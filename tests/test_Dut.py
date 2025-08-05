@@ -14,7 +14,7 @@ from esptest import dut_wrapper
 from esptest.adapter.dut import DutBase
 from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort
 from esptest.adapter.port.serial_port import SerialExt
-from esptest.devices.serial_dut import SerialDut
+from esptest.devices.serial_dut import SerialDut  # deprecated
 
 
 def test_base_dut_isinstance() -> None:
