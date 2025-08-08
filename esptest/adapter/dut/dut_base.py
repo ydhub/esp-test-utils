@@ -27,7 +27,8 @@ DEFAULT_SERIAL_CONFIGS = {'timeout': 0.005}
 class DutConfig:
     name: str = ''  # default = dut name / port name
     device: str = ''  # log serial device, eg: '/dev/ttyUSB0', 'COM3', etc.
-    baudrate: int = 0  # 0: get from bin path or 115200
+    baudrate: int = 0  # console baudrate, 0: get from bin path or 115200
+    baudrate_from_bin_path: bool = True  # always get baudrate from bin path if bin_path is set
     serial_configs: t.Optional[t.Dict[str, t.Any]] = None  # serial configs, eg: {'bytesize': 8, 'timeout': 0.1}
     # capabilities
     support_esptool: bool = False  # esp port or serial port
@@ -71,10 +72,14 @@ class DutConfig:
         # bin_path and get variables from bin path
         if self.bin_path:
             self.bin_path = Path(self.bin_path).expanduser().resolve()
-            self.esptool_stub = ParseBinPath(self.bin_path).stub
-            self.esptool_chip = ParseBinPath(self.bin_path).chip
-            if not self.baudrate:
-                self.baudrate = get_baud_from_bin_path(self.bin_path) or 115200
+            parsed_bin = ParseBinPath(self.bin_path)
+            self.esptool_stub = parsed_bin.stub
+            self.esptool_chip = parsed_bin.chip
+            if self.baudrate_from_bin_path:
+                # baudrate from bin path is much reliable than the specified one for uart0
+                self.baudrate = get_baud_from_bin_path(self.bin_path) or self.baudrate or 115200
+        if not self.baudrate:
+            self.baudrate = 115200  # set default baudrate to 115200
         # download device
         if not self.download_device:
             self.download_device = self.device

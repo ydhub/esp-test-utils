@@ -1,54 +1,87 @@
 import json
 import logging
 import os
-import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 import esptest.common.compat_typing as t
 
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
-CONSOLE_BAUD_KEYS = [
-    'ESP_CONSOLE_UART_BAUDRATE',
-    'CONSOLE_UART_BAUDRATE',
-    'ESPTOOLPY_MONITOR_BAUD',
-]
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
     """Get baudrate from binary path, if available. return 0 if failed"""
+    if not bin_path or not Path(bin_path).is_dir():
+        # Never raise error from this method
+        return 0
+    try:
+        return ParseBinPath(bin_path).sdkconfig.console_baud
+    except (OSError, AssertionError):
+        # no sdkconfig file or sdkconfig file is not valid
+        return 0
 
-    if not bin_path:
-        return 0  # Failed to get baudrate
-    if not os.path.isdir(bin_path):
-        logger.error(f'bin_path is set but it is not a Directory: {bin_path}')
-        raise NotADirectoryError(f'bin_path is set but it is not a Directory: {bin_path}')
-    try:
-        sdkconfig_file = Path(bin_path) / 'sdkconfig'
-        with open(str(sdkconfig_file), 'r', encoding='utf-8') as f:
-            data = f.read()
-            for config_name in CONSOLE_BAUD_KEYS:
-                match = re.search(rf'CONFIG_{config_name}=(\d+)', data)
-                if match:
-                    return int(match.group(1))
-    except OSError:
-        # FileExistsError, FileNotFoundError, etc.
-        pass
-    try:
-        sdkconfig_json_file = Path(bin_path) / 'config' / 'sdkconfig.json'
-        with open(str(sdkconfig_json_file), 'r', encoding='utf-8') as f:
-            json_data: t.Dict[str, t.Any] = json.load(f)
-            for key in CONSOLE_BAUD_KEYS:
-                if key in json_data.keys():
-                    return int(json_data[key])
-    except OSError:
-        # FileExistsError, FileNotFoundError, etc.
-        pass
-    return 0  # Failed to get baudrate
+
+class SDKConfig(t.Dict[str, t.Any]):
+    """A class to represent SDK configuration"""
+
+    CONSOLE_BAUD_KEYS = [
+        'ESP_CONSOLE_UART_BAUDRATE',
+        'CONSOLE_UART_BAUDRATE',
+        'ESPTOOLPY_MONITOR_BAUD',
+    ]
+
+    @classmethod
+    def from_file(cls, sdkconfig_file: t.Union[str, Path]) -> 'SDKConfig':
+        """Load SDK config from a file"""
+        sdkconfig = cls()
+        sdkconfig_file = Path(sdkconfig_file)
+        with sdkconfig_file.open('r', encoding='utf-8') as f:
+            if sdkconfig_file.suffix == '.json':
+                sdkconfig.update(json.load(f))
+            else:
+                # text sdkconfig
+                for line in f.readlines():
+                    if line.startswith('CONFIG_') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip().removeprefix('CONFIG_')
+                        value = value.strip()
+                        sdkconfig[key] = (
+                            True
+                            if value == 'y'
+                            else False
+                            if value == 'n'
+                            else int(value)
+                            if value.isdigit()
+                            else value[1:-1]
+                            if value[0] == '"'
+                            else value
+                        )
+                    elif line.startswith('# CONFIG_') and line.strip().endswith(' is not set'):
+                        key = line.strip().removeprefix('# CONFIG_').removesuffix(' is not set')
+                        sdkconfig[key] = False
+                        continue
+        return sdkconfig
+
+    @property
+    def console_baud(self) -> int:
+        """Get baudrate from SDK config"""
+        assert self, 'SDKConfig is not initialized'
+        for key in self.CONSOLE_BAUD_KEYS:
+            if key in self:
+                return int(self[key])
+        logger.warning('failed to get baud from sdkconfig')
+        return 0
+
+    @property
+    def flash_encryption(self) -> bool:
+        """Get flash encryption status from SDK config"""
+        assert self, 'SDKConfig is not initialized'
+        if 'SECURE_FLASH_ENC_ENABLED' not in self:
+            logger.warning('SECURE_FLASH_ENC_ENABLED not found in sdkconfig')
+        return bool(self.get('SECURE_FLASH_ENC_ENABLED', False))
 
 
 @dataclass
@@ -74,23 +107,26 @@ class ParseBinPath:
         self.bin_path = str(bin_path)
         self._parttool = parttool
         self._parttool = parttool
-        self.flasher_args = self.parse_flash_args()
-        self.stub: bool = self.flasher_args['extra_esptool_args'].get('stub', False)
-        self.chip: str = self.flasher_args['extra_esptool_args'].get('chip', 'auto')
+        self._flasher_args: t.Dict[str, t.Any] = {}
+        self._sdkconfig: SDKConfig = SDKConfig()
 
     @property
-    def sdkconfig(self) -> t.Dict[str, t.Any]:
+    def sdkconfig(self) -> SDKConfig:
         """
         Returns:
-            sdkconfig dict
+            sdkconfig object
         """
-        sdkconfig_json = Path(self.bin_path) / 'config' / 'sdkconfig.json'
-        if not sdkconfig_json.is_file():
-            raise FileNotFoundError(f'Can not get sdkconfig, no such file: {str(sdkconfig_json)} ')
-        data: t.Dict[str, t.Any] = {}
-        with open(sdkconfig_json, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data
+        if not self._sdkconfig:
+            sdkconfig_file = Path(self.bin_path) / 'config' / 'sdkconfig.json'
+            if sdkconfig_file.is_file():
+                self._sdkconfig = SDKConfig.from_file(sdkconfig_file)
+            else:
+                sdkconfig_file = Path(self.bin_path) / 'sdkconfig'
+                if sdkconfig_file.is_file():
+                    self._sdkconfig = SDKConfig.from_file(sdkconfig_file)
+                else:
+                    raise FileNotFoundError("'sdkconfig.json' or 'sdkconfig' not found in bin path")
+        return self._sdkconfig
 
     @property
     def parttool_path(self) -> str:
@@ -107,7 +143,6 @@ class ParseBinPath:
         return ''
 
     @staticmethod
-    @lru_cache()
     def _parse_flash_args(flasher_args_file: t.Union[str, Path]) -> t.Dict[str, t.Any]:
         _flasher_args = {}
         try:
@@ -117,10 +152,23 @@ class ParseBinPath:
             _flasher_args = {}
         return _flasher_args
 
-    def parse_flash_args(self) -> t.Dict[str, t.Any]:
+    @property
+    def flasher_args(self) -> t.Dict[str, t.Any]:
         """Parse flash args from flasher_args.json"""
-        flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
-        return self._parse_flash_args(flasher_args_file)
+        if not self._flasher_args:
+            flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
+            self._flasher_args = self._parse_flash_args(flasher_args_file)
+        return self._flasher_args
+
+    @property
+    def chip(self) -> str:
+        """Check the current chip"""
+        return str(self.flasher_args['extra_esptool_args'].get('chip', 'auto'))
+
+    @property
+    def stub(self) -> bool:
+        """Check if esptool stub is used"""
+        return bool(self.flasher_args['extra_esptool_args'].get('stub', False))
 
     def _gen_partition_table(self) -> None:
         part_csv = Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
