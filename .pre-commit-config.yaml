@@ -35,6 +35,7 @@ repos:
       - 'types-psutil'
       - 'types-PyYAML'
       - 'typing_extensions'
+      - 'sqlalchemy'
 
   - repo: https://github.com/espressif/conventional-precommit-linter
     rev: v1.10.0
