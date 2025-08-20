@@ -2,9 +2,10 @@ import argparse
 import logging
 import os
 import re
+import sys
 
 from esptest.devices.serial_tools import get_all_serial_ports
-from esptest.tools.download_bin import download_bin_to_ports
+from esptest.tools.download_bin import bin_path_to_dir, download_bin_to_ports
 
 
 def main() -> None:
@@ -21,7 +22,11 @@ def main() -> None:
 
     bin_path = args.bin_path or './build'
     if not os.path.isdir(bin_path):
-        raise ValueError(f'Can not find bin_path: {bin_path}')
+        try:
+            bin_path = bin_path_to_dir(bin_path)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.exception(f'Invalid bin path {bin_path} : {str(e)}')
+            sys.exit(1)
 
     ports = []
     if args.ports:

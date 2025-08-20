@@ -10,6 +10,7 @@ import esptest.common.compat_typing as t
 
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
+DEFAULT_GEN_PART_TOOL = os.path.join(os.path.dirname(__file__), 'gen_esp32part.py')
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
@@ -140,7 +141,7 @@ class ParseBinPath:
             _parttool = str(Path(IDF_PATH) / 'components' / 'partition_table' / 'gen_esp32part.py')
             if os.path.isfile(_parttool):
                 return os.path.realpath(_parttool)
-        return ''
+        return DEFAULT_GEN_PART_TOOL
 
     @staticmethod
     def _parse_flash_args(flasher_args_file: t.Union[str, Path]) -> t.Dict[str, t.Any]:
@@ -249,6 +250,18 @@ class ParseBinPath:
                 f.write(b'\xff' * part.size)
             return part.offset, nvs_bin
         raise ValueError('Can not get nvs partition info')
+
+    def erase_flash_args(self, baudrate: int = 0) -> t.List[str]:
+        args = []
+        if baudrate:
+            args += ['-b', str(baudrate)]
+        args += ['--chip', self.chip]
+        args += ['--before', self.flasher_args['extra_esptool_args']['before']]
+        args += ['--after', self.flasher_args['extra_esptool_args']['after']]
+        if not self.stub:
+            args += ['--no-stub']
+        args += ['erase_flash']
+        return args
 
     def flash_bin_args(self, baudrate: int = 0, erase_nvs: bool = True) -> t.List[str]:
         """Get write_flash args / command for esptool"""

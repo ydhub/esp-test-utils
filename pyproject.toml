@@ -238,5 +238,6 @@ include = ["esptest"]
 [tool.coverage.run]
     omit = [
         "__*__.py",
+        "gen_esp32part.py",
         "*/tests/*"
     ]
