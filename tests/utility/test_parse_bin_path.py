@@ -7,6 +7,7 @@ import pytest
 
 from esptest.all import DutConfig
 from esptest.common.compat_typing import Generator
+from esptest.tools.download_bin import bin_path_to_dir
 from esptest.utility.parse_bin_path import ParseBinPath, SDKConfig, get_baud_from_bin_path
 
 TEST_FILE_PATH = Path(__file__).parent / '_files'
@@ -121,6 +122,23 @@ def test_parse_bin_path(test_bin_path: Path) -> None:
         nvs_data = f.read()
         assert len(nvs_data) == 24 * 1024
         assert nvs_data == b'\xff' * 24 * 1024
+
+
+def test_parse_bin_gen_part(test_bin_path: Path) -> None:
+    partition_file = test_bin_path / 'partition_table' / 'partition-table.csv'
+    os.remove(str(partition_file))
+    assert not partition_file.is_file()
+    parse_bin_path = ParseBinPath(test_bin_path)
+    partitions = parse_bin_path.parse_partitions()
+    assert partition_file.is_file()
+    assert len(partitions) == 6
+    assert set([p.name for p in partitions]) == set(['nvs', 'phy_init', 'factory', 'wpa2_cer', 'wpa2_key', 'wpa2_ca'])
+
+
+def test_bin_path_to_dir() -> None:
+    bin_path = bin_path_to_dir(str(TEST_FILE_PATH / 'test-bin.zip'))
+    parse_bin_path = ParseBinPath(bin_path)
+    assert parse_bin_path.chip == 'esp32c5'
 
 
 if __name__ == '__main__':
