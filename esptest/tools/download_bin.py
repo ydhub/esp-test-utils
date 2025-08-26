@@ -1,13 +1,17 @@
 import asyncio
 import concurrent
 import concurrent.futures
+import os
 import subprocess
+import tempfile
+import zipfile
 from asyncio.events import AbstractEventLoop
 from functools import lru_cache, partial
 
 import esptest.common.compat_typing as t
 from esptest.devices.serial_tools import compute_serial_port
 from esptest.logger import get_logger
+from esptest.tools.http_download import download_file
 from esptest.utility.parse_bin_path import ParseBinPath
 
 logger = get_logger('download_bin')
@@ -16,6 +20,32 @@ logger = get_logger('download_bin')
 @lru_cache()
 def _get_bin_parser(bin_path: str, parttool: str) -> ParseBinPath:
     return ParseBinPath(bin_path, parttool)
+
+
+@lru_cache()
+def _tmp_dir() -> str:
+    return tempfile.mkdtemp()
+
+
+@lru_cache()
+def bin_path_to_dir(bin_path: str) -> str:
+    bin_hash = hash(bin_path)
+    bin_hash_name = os.path.basename(bin_path)
+    if bin_path.startswith('http'):
+        assert bin_path.endswith('.zip')  # for now only support zip from url
+        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_hash_name)
+        os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
+        download_file(bin_path, new_bin_path)
+        bin_path = new_bin_path
+    if bin_path.endswith('.zip'):
+        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_hash_name.removesuffix('.zip'))
+        os.makedirs(new_bin_path, exist_ok=True)
+        with zipfile.ZipFile(bin_path, 'r') as zip_ref:
+            zip_ref.extractall(new_bin_path)
+        bin_path = new_bin_path
+    if 'partition_table' not in os.listdir(bin_path):
+        logger.warning('Can not find partition_table from bin_path, maybe invalid!')
+    return bin_path
 
 
 def _filter_esptool_log(log: str) -> str:
