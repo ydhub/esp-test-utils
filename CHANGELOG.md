@@ -1,3 +1,12 @@
+## v0.2.1 (2025-09-24)
+
+
+- feat(utility): support to flash bin to encrypted device
+- feat: add runners database
+- feat: add default gen part tool
+- feat(utility): support to check flash enc from bin path
+- fix: get baud from bin path sdkconfig file
+
 ## v0.2.0 (2025-07-16)
 
 
