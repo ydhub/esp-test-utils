@@ -228,7 +228,9 @@ class ParseBinPath:
             args += ['-b', str(baudrate)]
         args += ['--chip', self.chip]
         args += ['--before', self.flasher_args['extra_esptool_args']['before']]
-        args += ['--after', self.flasher_args['extra_esptool_args']['after']]
+        # idf build will force `--after=no_rest` for secure boot or flash encryption
+        # but this was not a expected for testing
+        args += ['--after', 'hard_reset']
         if not self.stub:
             args += ['--no-stub']
         args += ['write_flash']
@@ -263,9 +265,17 @@ class ParseBinPath:
         args += ['erase_flash']
         return args
 
-    def flash_bin_args(self, baudrate: int = 0, erase_nvs: bool = True) -> t.List[str]:
-        """Get write_flash args / command for esptool"""
+    def flash_bin_args(self, baudrate: int = 0, erase_nvs: bool = True, encrypted: bool = False) -> t.List[str]:
+        """Get write_flash args / command for esptool.
+
+        Args:
+            baudrate (int, optional): baudrate for flashing.
+            erase_nvs (bool, optional): whether to erase nvs partition.
+            encrypted (bool, optional): whether to flash with encryption.
+        """
         args = self._write_flash_args_common(baudrate)
+        if encrypted:
+            args += ['--encrypt']
         for offset, bin_file in self.flasher_args['flash_files'].items():
             args += [offset, str(Path(self.bin_path) / bin_file)]
         if erase_nvs:

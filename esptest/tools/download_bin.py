@@ -2,6 +2,7 @@ import asyncio
 import concurrent
 import concurrent.futures
 import os
+import re
 import subprocess
 import tempfile
 import zipfile
@@ -66,6 +67,7 @@ def _filter_esptool_log(log: str) -> str:
 class DownBinTool:
     # RETRY_CNT = 2
     DEFAULT_BAUD_LIST = [921600, 460800]
+    FLASH_CRYPT_CNT_PATTERN = re.compile(r'(?:FLASH_CRYPT_CNT|SPI_BOOT_CRYPT_CNT).*\(0b([01]+)')
 
     def __init__(
         self,
@@ -84,11 +86,29 @@ class DownBinTool:
         else:
             self.baud_list = baud
         self.esptool = esptool or 'python -m esptool'
+        self.espefuse = self.esptool.replace('esptool', 'espefuse')
         self.erase_nvs = erase_nvs
         self.bin_parser = _get_bin_parser(bin_path, parttool)
         self.force_no_stub = force_no_stub
 
+    def check_flash_encrypted(self, efuse_summary: str) -> bool:
+        match = self.FLASH_CRYPT_CNT_PATTERN.search(efuse_summary)
+        if match:
+            return match.group(1).count('1') % 2 == 1
+        return False
+
     def download(self) -> None:
+        efuse_cmd = self.espefuse.split()
+        try:
+            summary = subprocess.check_output(
+                efuse_cmd + ['--port', self.port, 'summary'], stderr=subprocess.STDOUT, text=True
+            )
+        except subprocess.CalledProcessError as err:
+            logger.error(err.output)
+            raise RuntimeError(f'Failed to get efuse information from {self.port}') from err
+
+        enc_indicator = ' [encrypted]' if self.check_flash_encrypted(summary) else ''
+
         download_log = ''
         for baud in self.baud_list:
             args = self.esptool.split()
@@ -96,19 +116,18 @@ class DownBinTool:
                 args += ['--no-stub']
             args += ['-p', self.port]
             args += ['-b', f'{baud}']
-            args += self.bin_parser.flash_bin_args(erase_nvs=self.erase_nvs)
+            args += self.bin_parser.flash_bin_args(erase_nvs=self.erase_nvs, encrypted=bool(enc_indicator))
 
-            logger.critical(f'Downloading {self.port}@{baud}: {self.bin_path}')
+            logger.info(f'Downloading {self.port}@{baud}{enc_indicator}: {self.bin_path}')
             # get return code rather than check
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
             if ret.returncode == 0:
                 return  # succeed
             # failed
-            download_log = f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
+            download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
             download_log += f'\nDownload failed: [{self.port}@{baud}]\n'
             esptool_msg = ret.stdout + ret.stderr
             download_log += f'esptool output: {_filter_esptool_log(esptool_msg)}'
-            logger.debug(download_log)
         logger.error(download_log)
         raise RuntimeError(f'Failed to download Bin to {self.port}')
 
