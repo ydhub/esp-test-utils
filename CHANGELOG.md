@@ -1,3 +1,9 @@
+## v0.2.2 (2025-10-29)
+
+
+- feat: get test variables from shell env
+- fix: flash esp32 option no-stub
+
 ## v0.2.1 (2025-09-24)
 
 
