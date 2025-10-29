@@ -5,6 +5,30 @@ from typing import Any, List, Optional
 
 import yaml
 
+VAR_NAME_MAPPING = {
+    'ap_ssid': ['RUNNER_WIFI_SSID', 'RUNNER_AP_SSID'],
+    'ap_password': ['RUNNER_WIFI_PASSWORD', 'RUNNER_AP_PASSWORD'],
+    'pc_nic': ['RUNNER_PC_NIC'],
+    'dut1': ['ESPPORT1'],
+    'dut2': ['ESPPORT2'],
+    'dut3': ['ESPPORT3'],
+}
+
+
+def get_variable_from_env(key: str) -> Any:
+    """Get test variable from shell environment
+
+    Args:
+        key (str): which variable to get
+    """
+    if key in VAR_NAME_MAPPING:
+        for var_name in VAR_NAME_MAPPING[key]:
+            var = os.getenv(var_name)
+            if var is not None:
+                logging.debug(f'Got env variable from shell env {var_name}: {var}')
+                return var
+    return None
+
 
 class EnvConfig:
     """Get test environment variables from config file.
@@ -32,6 +56,8 @@ class EnvConfig:
     # Find env config file from project root path
     # CI_PROJECT_DIR was set by gitlab CI
     PROJECT_ROOT_DIR = os.getenv('PROJECT_ROOT_DIR') or os.getenv('CI_PROJECT_DIR', '')
+    # allow EnvConfig load shell env variables, default enabled
+    DISABLE_LOAD_SHELL_ENV = os.getenv('ESPTEST_DISABLE_LOAD_SHELL_ENV', '').lower() in ('true', '1', 'yes', 'y')
 
     # Allow input variables from terminal during local debugging
     ALLOW_INPUT = not os.getenv('CI')
@@ -115,14 +141,18 @@ class EnvConfig:
         # do not use dict.get because we can input the variable for local tests
         if key in self.config_data:
             var = self.config_data[key]
-        elif default:
+        elif default is not None:
             var = default
         else:
-            logging.warning(f'Failed to get env variable {self.env_tag}/{key}.')
-            logging.info(self.__doc__)
-            if not self.ALLOW_INPUT:
-                raise ValueError(f'Env variable not found: {self.env_tag}/{key}')
-            # For local test, support input the variable from console
-            var = input('You can input the variable now:')
+            if not self.DISABLE_LOAD_SHELL_ENV:
+                # Try to get from shell environment variables
+                var = get_variable_from_env(key)
+            if var is None:
+                logging.warning(f'Failed to get env variable {self.env_tag}/{key}.')
+                logging.info(self.__doc__)
+                if not self.ALLOW_INPUT:
+                    raise ValueError(f'Env variable not found: {self.env_tag}/{key}')
+                # For local test, support input the variable from console
+                var = input('You can input the variable now:')
         logging.debug(f'Got env variable {self.env_tag}/{key}: {var}')
         return var
