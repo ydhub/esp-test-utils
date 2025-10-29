@@ -77,7 +77,7 @@ class DownBinTool:
         parttool: str = '',
         esptool: str = '',
         erase_nvs: bool = True,
-        force_no_stub: bool = True,
+        force_no_stub: bool = False,
     ):  # pylint: disable=too-many-positional-arguments,too-many-arguments
         self.bin_path = bin_path
         self.port = compute_serial_port(port, strict=True)

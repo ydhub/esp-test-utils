@@ -95,7 +95,7 @@ class EspMixin(BaseProtocol):
             esptool=self.dut_config.use_esptool,
             erase_nvs=erase_nvs,
         )
-        if not self.esp.IS_STUB:
+        if not self.esp.IS_STUB and self.esp.CHIP_NAME not in ['ESP32']:
             # preview or dev targets
             down_bin_tool.force_no_stub = True
         with self.disable_redirect_thread():
@@ -105,6 +105,11 @@ class EspMixin(BaseProtocol):
     def start_redirect_thread(self) -> None:
         if self.esp:
             self.esp._port.open()  # pylint: disable=protected-access
+            if self.log_file:
+                with open(self.log_file, 'a', encoding='utf-8') as log_f:
+                    log_f.write(
+                        f'------------ reopen port: {self.esp._port.port} {self.esp._port.baudrate} --------------- \n'  # pylint: disable=protected-access
+                    )
         super().start_redirect_thread()
 
     def stop_redirect_thread(self) -> bool:

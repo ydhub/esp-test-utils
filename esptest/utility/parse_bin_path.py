@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import esptest.common.compat_typing as t
@@ -181,6 +182,7 @@ class ParseBinPath:
             except subprocess.SubprocessError as e:
                 logger.error(f'Failed to gen partition-table.csv: {str(e)}')
 
+    @lru_cache()
     def parse_partitions(self) -> t.List[PartitionInfo]:
         """Parse partitions from partition-table.csv"""
         self._gen_partition_table()
@@ -292,4 +294,10 @@ class ParseBinPath:
                 return args + [part.offset, nvs_bin]
             # erase nvs
             return args + list(self._gen_erase_nvs_bin())
+        raise ValueError('Can not find nvs partition info')
+
+    def get_partition_info(self, part_name: str) -> PartitionInfo:
+        for part in self.parse_partitions():
+            if part.name == part_name:
+                return part
         raise ValueError('Can not find nvs partition info')

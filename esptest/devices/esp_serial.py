@@ -84,3 +84,14 @@ def list_all_esp_ports() -> t.List[EspPortInfo]:
     for port in get_all_serial_ports():
         esp_ports.append(detect_one_port(port))
     return esp_ports
+
+
+def get_available_ports(target: str, max_num: int = 0) -> t.List[EspPortInfo]:
+    detect_ports = []
+    for port in get_all_serial_ports():
+        esp_port = detect_one_port(port)
+        if esp_port.target == target:
+            detect_ports.append(esp_port)
+        if max_num > 0 and len(detect_ports) >= max_num:  # pylint: disable=chained-comparison
+            return detect_ports
+    return detect_ports

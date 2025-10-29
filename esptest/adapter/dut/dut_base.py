@@ -11,7 +11,7 @@ from esptool.loader import ESPLoader
 
 import esptest.common.compat_typing as t
 
-from ...common.timestamp import timestamp_str
+from ...common.timestamp import timestamp_slug
 from ...interface.dut import DutInterface
 from ...interface.port import PortInterface
 from ...logger import get_logger
@@ -62,7 +62,7 @@ class DutConfig:
         self._auto_gen_name()
         if not self.log_file:
             _log_path = self.log_path or './dut_logs'
-            _file_name = f'{self.name}_{timestamp_str()}.log'.replace(':', '-')
+            _file_name = f'{self.name}_{timestamp_slug()}.log'.replace(':', '-')
             self.log_file = str(Path(_log_path) / _file_name)
         # serial configs
         _serial_configs = DEFAULT_SERIAL_CONFIGS.copy()
@@ -228,6 +228,12 @@ class DutBase(VariablesMixin, DutInterface):  # pylint: disable=too-many-public-
         if self._base_port_proxy:
             return self._base_port_proxy.raw_port
         raise NotImplementedError()
+
+    @property
+    def log_file(self) -> t.Any:
+        if self._base_port_proxy:
+            return self._base_port_proxy.log_file
+        return None
 
     @property
     def name(self) -> t.Any:
