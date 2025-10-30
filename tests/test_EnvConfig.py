@@ -65,6 +65,30 @@ def test_env_config_get_var(tmp_path: Path) -> None:
             env_config.get_variable('dut_port')
 
 
+def test_env_config_from_shell_env(tmp_path: Path) -> None:
+    # Test Get variable from console
+    config_file = tmp_path / 'not_exist_config.yml'
+    env = {
+        'TEST_ENV_CONFIG_FILE': str(config_file),
+    }
+    with reload_envconfig(env):
+        try:
+            os.environ.pop('RUNNER_WIFI_SSID')
+        except KeyError:
+            pass
+        try:
+            os.environ.pop('RUNNER_AP_SSID')
+        except KeyError:
+            pass
+        env_config = EnvConfig()
+        env_config.ALLOW_INPUT = False
+        with pytest.raises(ValueError):
+            var = env_config.get_variable('ap_ssid')
+        os.environ['RUNNER_AP_SSID'] = 'ssid_from_env'
+        var = env_config.get_variable('ap_ssid')
+        assert var == 'ssid_from_env'
+
+
 def test_env_config_from_console(tmp_path, monkeypatch):  # type: ignore
     # Test Get variable from console
     config_file = tmp_path / 'not_exist_config.yml'
