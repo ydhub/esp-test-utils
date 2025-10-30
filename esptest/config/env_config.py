@@ -113,10 +113,7 @@ class EnvConfig:
                 continue
             config_file = os.path.join(_dir, cls.ENV_CONFIG_FILE_BASE_NAME)
         if not config_file:
-            _msg = (
-                'Can not find env config file from:\n  ',
-                '  \n'.join(cls._search_dirs()),
-            )
+            _msg = 'Can not find env config file from:\n  ' + '  \n'.join(cls._search_dirs())
             logging.warning(_msg)
             if not cls.ALLOW_INPUT:
                 raise FileNotFoundError(f'Could not find config file: {cls.ENV_CONFIG_FILE_BASE_NAME}')
