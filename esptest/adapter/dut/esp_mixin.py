@@ -51,15 +51,17 @@ class EspSerial:
 
 class EspMixin(BaseProtocol):
     def _esptool_open_port(self, port: str, initial_baud: int, **kwargs: t.Any) -> esptool.ESPLoader:
-        ports = [p.device for p in get_all_serial_ports()]
         port = compute_serial_port(port) if port else ''
+        serial_list = [port] if port else [p.device for p in get_all_serial_ports()]
+        # esptool.get_default_connected_device always detect_chip from serial_list
         esp = esptool.get_default_connected_device(
-            ports,
-            port,
+            serial_list,
+            port=port or None,  # type: ignore
             connect_attempts=3,
             initial_baud=initial_baud,
             chip=kwargs.get('chip', 'auto'),
         )
+        assert esp, f'Failed to connect to {port}'
         return esp
 
     def _esptool_path(self, use_esptool: str = '') -> str:
