@@ -31,9 +31,12 @@ class RawPort(metaclass=abc.ABCMeta):
     """Define a minimum Dut class, the dut objects should at least support these methods
 
     the dut should at least support these attributes:
-    - attribute name with type str
     - method: write_bytes() with parameters: data[bytes]
     - method: read_bytes() with parameters: timeout[float]
+
+    optional attribute & method:
+    - attribute: name with type str
+    - attribute: read_timeout with type float
     """
 
     @classmethod
@@ -243,7 +246,11 @@ class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
         self._log(ret_data, 'read')  # type: ignore
         return ret_data
 
+    @deprecated('Should use close() for Spawn')
     def stop(self) -> None:
+        self.close()
+
+    def close(self) -> None:
         """Stop and clean up"""
         self.logger.debug(f'Stopping SerialSpawn {self.name}')
         self._read_thread_stop_event.set()
@@ -359,7 +366,7 @@ class BasePort(PortInterface, t.Generic[T]):
         if new_log_file == self._log_file:
             return
         if self._pexpect_spawn:
-            self._pexpect_spawn.serial_log_file = new_log_file
+            self._pexpect_spawn.log_file = new_log_file
         self._log_file = new_log_file
 
     @property
@@ -381,7 +388,7 @@ class BasePort(PortInterface, t.Generic[T]):
         if not self._pexpect_spawn:
             return False
         self._init_log_file()
-        self._pexpect_spawn.stop()
+        self._pexpect_spawn.close()
         self._pexpect_spawn = None
         return True
 
@@ -486,9 +493,13 @@ class BasePort(PortInterface, t.Generic[T]):
         """
         buffer = b''
         if flush:
-            match = self.expect(re.compile(b'.*', re.DOTALL), timeout=0)
-            assert match
-            buffer = match.group(0)
+            # pexpect may return empty bytes if b'(.*)' is used
+            try:
+                match = self.expect(re.compile(b'(.+)', re.DOTALL), timeout=0)
+                assert match
+                buffer = match.group(0)
+            except TimeoutError:
+                pass
         else:
             # flush spawn buffer
             assert self._pexpect_spawn
@@ -499,7 +510,11 @@ class BasePort(PortInterface, t.Generic[T]):
 
     def close(self) -> None:
         if self._close_redirect_thread_when_exit and self._pexpect_spawn:
-            self._pexpect_spawn.stop()
+            self._pexpect_spawn.close()
+        if self.raw_port:
+            if hasattr(self.raw_port, 'close'):
+                assert callable(self.raw_port.close)  # type: ignore
+                self.raw_port.close()  # type: ignore
 
     def __enter__(self) -> 't.Self':
         return self
