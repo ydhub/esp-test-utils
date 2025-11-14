@@ -1,3 +1,10 @@
+## v0.2.3 (2025-11-14)
+
+
+- feat: add shell port support
+- fix: Fix esptool connect to given port
+- fix: log of env config search dirs
+
 ## v0.2.2 (2025-10-29)
 
 
