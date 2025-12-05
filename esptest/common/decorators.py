@@ -109,3 +109,23 @@ def suppress_stdout() -> t.Callable[[GenericFunc], GenericFunc]:
         return t.cast(GenericFunc, wrapper)
 
     return decorator
+
+
+def timeit(
+    print_func: t.Callable[[str], None] = logger.critical,
+    format_str: str = 'Func {func_name} time used: {time_used:.2f} s',
+) -> t.Callable[[GenericFunc], GenericFunc]:
+    """Show time used when method is called"""
+
+    def decorator(func: GenericFunc) -> GenericFunc:
+        @wraps(func)
+        def wrapper(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            start_time = time.perf_counter()
+            ret = func(*args, **kwargs)
+            end_time = time.perf_counter()
+            print_func(format_str.format(func_name=func.__name__, time_used=end_time - start_time))
+            return ret
+
+        return t.cast(GenericFunc, wrapper)
+
+    return decorator

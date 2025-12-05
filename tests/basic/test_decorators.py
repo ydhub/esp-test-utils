@@ -1,8 +1,10 @@
+import io
 import time
+from contextlib import redirect_stdout
 
 import pytest
 
-from esptest.common.decorators import retry
+from esptest.common.decorators import retry, timeit
 
 
 def test_retry_on_result() -> None:
@@ -93,6 +95,28 @@ def test_retry_if_except() -> None:
     with pytest.raises(ValueError):
         _ = test_func3()
     assert time.time() - t0 < 0.1
+
+
+def test_timeit() -> None:
+    @timeit(print_func=print)  # output to stdout using print
+    def test_func1() -> None:
+        pass
+
+    @timeit(print_func=print, format_str='Func2 time used: {time_used:.1f} s')
+    def test_func2() -> None:
+        time.sleep(0.1)
+
+    with redirect_stdout(io.StringIO()) as f:
+        test_func1()
+        out = f.getvalue().strip()
+        assert 'Func test_func1 time used: 0.00 s' in out
+
+    with redirect_stdout(io.StringIO()) as f1:
+        f1.flush()
+        test_func2()
+        out = f1.getvalue().strip()
+        assert 'Func2 time used: ' in out
+        assert '0.1' in out
 
 
 if __name__ == '__main__':
