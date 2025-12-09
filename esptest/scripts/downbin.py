@@ -21,7 +21,16 @@ def main() -> None:
     )
     parser.add_argument('--no-erase-nvs', dest='erase_nvs', action='store_false', help='skip erase nvs')
     parser.add_argument('--max-workers', type=int, default=0, help='max download threads')
+    parser.add_argument('--force-no-stub', action='store_true', help='force no stub')
+    parser.add_argument('--check-no-stub', action='store_true', help='check no stub')
+    parser.add_argument('-v', '--verbose', action='count', default=0, help='verbose output')
+
     args = parser.parse_args()
+
+    log_level = [logging.WARNING, logging.INFO, logging.DEBUG]
+    logging.basicConfig(
+        level=log_level[min(args.verbose, len(log_level) - 1)], format='%(asctime)s %(levelname)s %(message)s'
+    )
 
     bin_path = args.bin_path or './build'
     if not os.path.isdir(bin_path):
@@ -46,7 +55,7 @@ def main() -> None:
     assert isinstance(ports, list)
 
     try:
-        download_bin_to_ports(bin_path, ports, args.erase_nvs, args.max_workers)
+        download_bin_to_ports(bin_path, ports, args.erase_nvs, args.max_workers, args.force_no_stub, args.check_no_stub)
     except RuntimeError as e:
         logging.error(str(e))
         sys.exit(1)

@@ -4,10 +4,13 @@ import concurrent.futures
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import zipfile
 from asyncio.events import AbstractEventLoop
 from functools import lru_cache, partial
+
+from esptool import get_default_connected_device
 
 import esptest.common.compat_typing as t
 from esptest.devices.serial_tools import compute_serial_port
@@ -78,6 +81,7 @@ class DownBinTool:
         esptool: str = '',
         erase_nvs: bool = True,
         force_no_stub: bool = False,
+        check_no_stub: bool = False,
     ):  # pylint: disable=too-many-positional-arguments,too-many-arguments
         self.bin_path = bin_path
         self.port = compute_serial_port(port, strict=True)
@@ -85,11 +89,12 @@ class DownBinTool:
             self.baud_list = [baud] if baud > 0 else self.DEFAULT_BAUD_LIST
         else:
             self.baud_list = baud
-        self.esptool = esptool or 'python -m esptool'
+        self.esptool = esptool or f'{sys.executable} -m esptool'
         self.espefuse = self.esptool.replace('esptool', 'espefuse')
         self.erase_nvs = erase_nvs
         self.bin_parser = _get_bin_parser(bin_path, parttool)
         self.force_no_stub = force_no_stub
+        self.check_no_stub = check_no_stub
 
     def check_flash_encrypted(self, efuse_summary: str) -> bool:
         match = self.FLASH_CRYPT_CNT_PATTERN.search(efuse_summary)
@@ -113,12 +118,23 @@ class DownBinTool:
         for baud in self.baud_list:
             args = self.esptool.split()
             if self.force_no_stub:
-                args += ['--no-stub']
+                args += ['--no-stub'] if '--no-stub' not in args else []
+            elif self.check_no_stub:
+                esp = get_default_connected_device(
+                    [self.port],
+                    port=self.port,
+                    connect_attempts=3,
+                    initial_baud=self.baud_list[0],
+                    chip='auto',
+                )
+                if not esp.IS_STUB:  # type: ignore
+                    args += ['--no-stub'] if '--no-stub' not in args else []
             args += ['-p', self.port]
             args += ['-b', f'{baud}']
             args += self.bin_parser.flash_bin_args(erase_nvs=self.erase_nvs, encrypted=bool(enc_indicator))
 
             logger.info(f'Downloading {self.port}@{baud}{enc_indicator}: {self.bin_path}')
+            logger.debug(f'esptool cmd: {" ".join(args)}')
             # get return code rather than check
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
             if ret.returncode == 0:
@@ -141,11 +157,13 @@ async def _async_download_bin(down_tool: DownBinTool, loop: AbstractEventLoop) -
     await loop.run_in_executor(None, async_func)
 
 
-async def async_download_bin_scheduler(
+async def async_download_bin_scheduler(  # pylint: disable=too-many-positional-arguments
     bin_path: str,
     ports: t.List[str],
     erase_nvs: bool = True,
     max_workers: int = 0,
+    force_no_stub: bool = False,
+    check_no_stub: bool = False,
 ) -> None:
     max_workers = max_workers or len(ports)
     loop = asyncio.get_running_loop()
@@ -153,11 +171,20 @@ async def async_download_bin_scheduler(
 
     coroutines = []
     for _port in ports:
-        down_tool = DownBinTool(bin_path, _port, erase_nvs=erase_nvs)
+        down_tool = DownBinTool(
+            bin_path, _port, erase_nvs=erase_nvs, force_no_stub=force_no_stub, check_no_stub=check_no_stub
+        )
         coroutines.append(_async_download_bin(down_tool, loop))
 
     await asyncio.gather(*coroutines)
 
 
-def download_bin_to_ports(bin_path: str, ports: t.List[str], erase_nvs: bool = True, max_workers: int = 0) -> None:
-    asyncio.run(async_download_bin_scheduler(bin_path, ports, erase_nvs, max_workers))
+def download_bin_to_ports(  # pylint: disable=too-many-positional-arguments
+    bin_path: str,
+    ports: t.List[str],
+    erase_nvs: bool = True,
+    max_workers: int = 0,
+    force_no_stub: bool = False,
+    check_no_stub: bool = False,
+) -> None:
+    asyncio.run(async_download_bin_scheduler(bin_path, ports, erase_nvs, max_workers, force_no_stub, check_no_stub))
