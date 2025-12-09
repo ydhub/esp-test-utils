@@ -280,6 +280,27 @@ class TestSerialDut(unittest.TestCase):
             except OSError:
                 pass
 
+    def test_expect_timeout_data_in_buffer(self) -> None:
+        ser_read_timeout = 0.001
+        ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
+        dut = SerialDut(ser, 'MyDut')
+        fd_master = os.fdopen(self.master, 'wb')
+        try:
+            # port data
+            fd_master.write(b'aaabbb')
+            fd_master.flush()
+            with pytest.raises(ExpectTimeout) as e:
+                dut.expect('ddd', timeout=0.01)
+            assert e.value.data_in_buffer == b'aaabbb'
+            fd_master.write(b'\xff')
+            fd_master.flush()
+            with pytest.raises(ExpectTimeout) as e:
+                dut.expect('ddd', timeout=0.01)
+            assert e.value.data_in_buffer == b'aaabbb\xff'
+        finally:
+            dut.close()
+            self._close_file_io(fd_master)
+
 
 if __name__ == '__main__':
     # Breakpoints do not work with coverage, disable coverage for debugging

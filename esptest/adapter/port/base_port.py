@@ -26,6 +26,13 @@ NEVER_MATCHED_MAGIC_STRING = 'o6K,Q.(w+~yr~N9R'
 class ExpectTimeout(TimeoutError):
     """raise same ExpectTimeout rather than different Exception from different framework"""
 
+    def __init__(self, message: str, data_in_buffer: t.Union[str, bytes] = b'') -> None:
+        super().__init__(message)
+        self.data_in_buffer: t.Union[str, bytes] = data_in_buffer
+
+    def __str__(self) -> str:
+        return f'{super().__str__()}\n data_in_buffer={repr(self.data_in_buffer)}'
+
 
 class RawPort(metaclass=abc.ABCMeta):
     """Define a minimum Dut class, the dut objects should at least support these methods
@@ -408,7 +415,12 @@ class BasePort(PortInterface, t.Generic[T]):
             try:
                 result = func(self, *args, **kwargs)
             except self.expect_timeout_exceptions as e:
-                raise ExpectTimeout(str(e)) from e
+                try:
+                    data_in_buffer = self._pexpect_spawn.before  # pylint: disable=protected-access
+                except AttributeError:
+                    data_in_buffer = ''
+                self.logger.debug(f'ExpectTimeout: {str(e)}, data_in_buffer={repr(data_in_buffer)}')
+                raise ExpectTimeout(str(e), data_in_buffer=data_in_buffer) from e
             return result
 
         return wrap
