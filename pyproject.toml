@@ -37,8 +37,10 @@ include = ["esptest"]
         "PyYAML",
         "pexpect",
         "pyusb",
+        "pyudev",
         "esptool",
         "packaging",
+        "rich",
         "sqlalchemy",
         "typing_extensions; python_version < '3.11'"
     ]

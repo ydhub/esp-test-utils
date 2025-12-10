@@ -1,3 +1,6 @@
+import argparse
+import sys
+
 try:
     # Run from `python -m esptest.scripts.list_ports`
     from ..devices.esp_serial import list_all_esp_ports
@@ -5,7 +8,24 @@ except ImportError:
     from esptest.devices.esp_serial import list_all_esp_ports
 
 
+def run_uart_monitor() -> None:
+    try:
+        from esptest.tools.uart_monitor import start_monitoring
+    except ImportError as e:
+        print(f'import uart_monitor failed: {str(e)}`')
+        sys.exit(1)
+    start_monitoring()
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('--monitor', action='store_true', help='run uart port monitor')
+    args = parser.parse_args()
+
+    if args.monitor:
+        run_uart_monitor()
+        return
+
     print('All devices:')
     print('Device,        Location,    esptool,   target,   description')
     for port in list_all_esp_ports():
