@@ -27,9 +27,9 @@ LINK_TYPE_MAP = {
 class SwitchConfig:
     ip: str
     port: int
-    login_method: str
-    login_username: str
-    login_password: str
+    login_method: str = 'telnet'
+    login_username: str = ''
+    login_password: str = ''
     timeout: float = 10
 
     def __post_init__(self) -> None:
@@ -132,7 +132,9 @@ class PoolInfo:
             ip = match.group(1).strip()
             mask = match.group(2).strip()
         else:
-            logger.warning(f'Failed to parse pool info from output: {output[:100]}')
+            logger.warning(
+                f'Failed to parse network info from pool {pool_name}, trying parse ip/mask from static bindings'
+            )
             ip = gateway.split(' ')[0]
             mask_match = re.search(r'mask (\d+\.\d+\.\d+\.\d+)', output)
             assert mask_match, f'Failed to parse ip/mask from pool: {pool_name}, Please set network config to the pool'
@@ -299,6 +301,7 @@ class H3CSwitch:
             if self.need_save:
                 self.save()
             self.session.close()
+            logger.info(f'Disconnected from switch: {self.ip}:{self.port}')
             self.session = None
             self.sysname = ''
 
@@ -309,7 +312,7 @@ class H3CSwitch:
             self.session.expect('successfully.')
             self.session.expect(self.sysname)
             self.need_save = False
-            logger.info('Configuration saved successfully.')
+            logger.info('Switch configuration saved successfully.')
 
     def reset_cache(self) -> None:
         """Reset the cache of the switch."""
@@ -338,7 +341,9 @@ class H3CSwitch:
             # escape special chars for regex matching
             # limit the length to 20 chars, because H3C echo may insert new line
             _command_escaped = re.escape(command[:20])
-            match = self.session.expect(re.compile(rf'{_command_escaped}([\s\S]+)[\[<]{self.sysname}'), timeout=timeout)
+            match = self.session.expect(
+                re.compile(rf'({_command_escaped}[\s\S]+[\[<]{self.sysname}\S*[\]>])'), timeout=timeout
+            )
             # return the captured output between the echoed command and the prompt
             return match.group(1).strip()
         return ''
@@ -379,6 +384,7 @@ class H3CSwitch:
             output = self.execute_command(f'display vlan {new_vlan.id}')
             new_vlan.parse_vlan_details(output)
             self._vlan_info_list.append(new_vlan)
+        logger.info(f'Get vlan [interface] info: {len(self._vlan_info_list)} vlans')
         return self._vlan_info_list
 
     def get_pool_name_list(self) -> t.List[str]:
@@ -410,6 +416,7 @@ class H3CSwitch:
                     new_pool.vlan_id = vlan.id
                     break
             self._pool_info_list.append(new_pool)
+        logger.info(f'Get pool list: {len(self._pool_info_list)} pools')
         return self._pool_info_list
 
     def get_interface_info(self, detail: bool = False) -> t.List[InterfaceInfo]:
@@ -431,6 +438,7 @@ class H3CSwitch:
                     new_interface.parse_interface_details(output)
                     self.system_view()
                 self._interface_info_list.append(new_interface)
+        logger.info(f'Get interface list: {len(self._interface_info_list)} interfaces')
         return self._interface_info_list
 
     def get_arp_info(self) -> t.List[ArpInfo]:
@@ -445,6 +453,7 @@ class H3CSwitch:
             new_arp = ArpInfo.parse_arp_line(line)
             if new_arp:
                 self._arp_info_list.append(new_arp)
+        logger.info(f'Get ARP list: {len(self._arp_info_list)} ARP entries')
         return self._arp_info_list
 
     def get_static_bind_info(self) -> t.List[StaticBindInfo]:
@@ -462,6 +471,7 @@ class H3CSwitch:
                 hardware_address = match.group(3)
                 new_bind = StaticBindInfo(ip_address, mask, hardware_address, pool)
                 self._static_bind_info_list.append(new_bind)
+        logger.info(f'Get static bind list: {len(self._static_bind_info_list)} static binds')
         return self._static_bind_info_list
 
     def get_pool_by_ip(self, ip_address: str) -> PoolInfo:
@@ -471,8 +481,37 @@ class H3CSwitch:
                 return pool
         raise ValueError(f'IP address {ip_address} not found in any pool')
 
-    def add_one_static_bind(self, ip_address: str, hardware_address: str, mask: str = '', pool_name: str = '') -> bool:
-        """Add static bind information to the switch."""
+    def get_arp_info_by_ip(self, ip_address: str) -> ArpInfo:
+        """Get ARP information by IP address."""
+        if self._arp_info_list:
+            for arp_info in self._arp_info_list:
+                if arp_info.ip == ip_address:
+                    return arp_info
+        output = self.execute_command(f'display arp {ip_address}')
+        for line in output.splitlines():
+            if line.startswith(ip_address):
+                arp_info = ArpInfo.parse_arp_line(line)  # type: ignore
+                if arp_info:
+                    return arp_info
+        raise ValueError(f'IP address {ip_address} not found in ARP table')
+
+    def add_one_static_bind(  # pylint: disable=too-many-positional-arguments
+        self,
+        ip_address: str,
+        hardware_address: str = '',
+        mask: str = '',
+        pool_name: str = '',
+        remove_existing: bool = False,
+    ) -> bool:
+        """Add static bind information to the switch.
+
+        Args:
+            ip_address: IP address to bind.
+            hardware_address: Hardware address to bind.
+            mask: Subnet mask.
+            pool_name: Pool name.
+            remove_existing: Remove existing bind information for the IP address.
+        """
         if pool_name:
             assert mask, 'Mask is required when pool_name is specified'
             assert pool_name in self.get_pool_name_list(), f'Pool {pool_name} not found on this switch'
@@ -480,18 +519,26 @@ class H3CSwitch:
             pool = self.get_pool_by_ip(ip_address)
             pool_name = pool.name
             mask = pool.mask
+        if not hardware_address:
+            hardware_address = self.get_arp_info_by_ip(ip_address).mac
         hardware_address = format_mac_to_h3c(hardware_address)
         result = True
         self.system_view()
         command = f'dhcp server ip-pool {pool_name}'
         self.execute_command(command)
         try:
-            command = f'undo static-bind ip-address {ip_address}'
-            self.execute_command(command)
+            if remove_existing:
+                command = f'undo static-bind ip-address {ip_address}'
+                self.execute_command(command)
+            logger.info(f'Bind static dhcp {ip_address} {mask} {hardware_address} to pool {pool_name}.')
             command = f'static-bind ip-address {ip_address} mask {mask} hardware-address {hardware_address}'
-            self.execute_command(command)
+            output = self.execute_command(command)
+            if 'The IP address has already been bound' in output:
+                logger.error(f'IP address {ip_address} has already been bound, pool:{pool_name}')
+                result = False
         except TimeoutError as e:
             logger.error(f'Failed to bind {ip_address} {mask} {hardware_address}, pool:{pool_name}, error:{str(e)}')
             result = False
+        self.need_save = bool(result)
         self.system_view()  # return to system view
         return result

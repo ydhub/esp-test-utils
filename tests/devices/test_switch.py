@@ -209,6 +209,7 @@ def test_h3c_add_static_bind() -> None:
         assert test_bind_ip in [bind_info.ip for bind_info in bind_list]
         bind_info = [bind_info for bind_info in bind_list if bind_info.ip == test_bind_ip][0]
         assert bind_info.mac == '11:22:33:44:AA:BB'
+        assert h3c.need_save is True
 
 
 if __name__ == '__main__':
