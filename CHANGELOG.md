@@ -1,3 +1,12 @@
+## v0.3.0 (2025-12-10)
+
+
+- feat: esp-listports support monitor mode
+- feat: add more logs to H3CSwitch
+- feat: esp-downbin support argument --force-no-stub
+- feat: add h3c switch device control
+- feat: add decorator timeit
+
 ## v0.2.3 (2025-11-14)
 
 
