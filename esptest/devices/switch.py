@@ -274,6 +274,14 @@ class H3CSwitch:
         """
         Connect to the switch.
         """
+        if self.session:
+            # already connected
+            try:
+                self.system_view()
+                return
+            except TimeoutError:
+                pass
+
         _switch_name = f'H3C-Switch-{self.ip}-{self.port}'
         # Use TERM=xterm to avoid "'xterm-256color': unknown terminal type.".
         if self.login_method == 'telnet':
@@ -479,6 +487,7 @@ class H3CSwitch:
         for pool in self.get_pool_info():
             if ip_in_network(ip_address, f'{pool.ip}/{pool.mask}'):
                 return pool
+        logger.error(f'get_pool_by_ip failed: {ip_address}')
         raise ValueError(f'IP address {ip_address} not found in any pool')
 
     def get_arp_info_by_ip(self, ip_address: str) -> ArpInfo:
@@ -493,6 +502,7 @@ class H3CSwitch:
                 arp_info = ArpInfo.parse_arp_line(line)  # type: ignore
                 if arp_info:
                     return arp_info
+        logger.error(f'get_arp_info_by_ip failed: {ip_address}')
         raise ValueError(f'IP address {ip_address} not found in ARP table')
 
     def add_one_static_bind(  # pylint: disable=too-many-positional-arguments
@@ -502,7 +512,7 @@ class H3CSwitch:
         mask: str = '',
         pool_name: str = '',
         remove_existing: bool = False,
-    ) -> bool:
+    ) -> t.Optional[StaticBindInfo]:
         """Add static bind information to the switch.
 
         Args:
@@ -513,8 +523,10 @@ class H3CSwitch:
             remove_existing: Remove existing bind information for the IP address.
         """
         if pool_name:
-            assert mask, 'Mask is required when pool_name is specified'
-            assert pool_name in self.get_pool_name_list(), f'Pool {pool_name} not found on this switch'
+            if not mask:
+                raise ValueError('Mask is required when pool_name is specified')
+            if pool_name not in self.get_pool_name_list():
+                raise ValueError(f'Pool {pool_name} not found on this switch')
         else:
             pool = self.get_pool_by_ip(ip_address)
             pool_name = pool.name
@@ -522,23 +534,125 @@ class H3CSwitch:
         if not hardware_address:
             hardware_address = self.get_arp_info_by_ip(ip_address).mac
         hardware_address = format_mac_to_h3c(hardware_address)
-        result = True
+        new_bind_info = None
         self.system_view()
         command = f'dhcp server ip-pool {pool_name}'
         self.execute_command(command)
         try:
             if remove_existing:
+                logger.debug(f'Try to remove existing bind info for {ip_address} in pool: {pool_name}.')
                 command = f'undo static-bind ip-address {ip_address}'
                 self.execute_command(command)
             logger.info(f'Bind static dhcp {ip_address} {mask} {hardware_address} to pool {pool_name}.')
             command = f'static-bind ip-address {ip_address} mask {mask} hardware-address {hardware_address}'
             output = self.execute_command(command)
             if 'The IP address has already been bound' in output:
-                logger.error(f'IP address {ip_address} has already been bound, pool:{pool_name}')
-                result = False
-        except TimeoutError as e:
+                raise ValueError(f'IP address {ip_address} has already been bound, pool:{pool_name}')
+            new_bind_info = StaticBindInfo(ip_address, mask, hardware_address, pool_name)
+        except (TimeoutError, ValueError) as e:
             logger.error(f'Failed to bind {ip_address} {mask} {hardware_address}, pool:{pool_name}, error:{str(e)}')
-            result = False
-        self.need_save = bool(result)
+            raise
+
+        if new_bind_info:
+            self.need_save = True
+            if self._static_bind_info_list:
+                self._static_bind_info_list.append(new_bind_info)
         self.system_view()  # return to system view
-        return result
+        return new_bind_info
+
+    def remove_one_static_bind(  # pylint: disable=too-many-positional-arguments
+        self,
+        ip_address: str,
+        pool_name: str = '',
+    ) -> t.Optional[StaticBindInfo]:
+        """Remove static bind information from the switch.
+
+        Args:
+            ip_address: IP address to unbind.
+            pool_name: Pool name.
+        """
+        if pool_name:
+            if pool_name not in self.get_pool_name_list():
+                raise ValueError(f'Pool {pool_name} not found on this switch')
+        else:
+            pool = self.get_pool_by_ip(ip_address)
+            pool_name = pool.name
+            mask = pool.mask
+        self.system_view()
+        command = f'dhcp server ip-pool {pool_name}'
+        self.execute_command(command)
+        try:
+            logger.info(f'removing existing bind info for {ip_address} in pool: {pool_name}.')
+            command = f'undo static-bind ip-address {ip_address}'
+            self.execute_command(command)
+            output = self.execute_command(command)
+            if 'The IP address has already been bound' in output:
+                raise ValueError(f'IP address {ip_address} has already been bound, pool:{pool_name}')
+            new_bind_info = StaticBindInfo(ip_address, mask, hardware_address, pool_name)
+        except (TimeoutError, ValueError) as e:
+            logger.error(f'Failed to bind {ip_address} {mask} {hardware_address}, pool:{pool_name}, error:{str(e)}')
+            raise
+
+        if new_bind_info:
+            self.need_save = True
+            if self._static_bind_info_list:
+                self._static_bind_info_list.append(new_bind_info)
+        self.system_view()  # return to system view
+        return new_bind_info
+
+    def remove_one_static_bind(  # pylint: disable=too-many-positional-arguments
+        self,
+        ip_address: str,
+        pool_name: str = '',
+    ) -> t.Optional[StaticBindInfo]:
+        """Remove static bind information from the switch.
+
+        Args:
+            ip_address: IP address to unbind.
+            pool_name: Pool name.
+        """
+        if pool_name:
+            if pool_name not in self.get_pool_name_list():
+                raise ValueError(f'Pool {pool_name} not found on this switch')
+        else:
+            pool = self.get_pool_by_ip(ip_address)
+            pool_name: Pool name.
+            remove_existing: Remove existing bind information for the IP address.
+        """
+        if pool_name:
+            if not mask:
+                raise ValueError('Mask is required when pool_name is specified')
+            if pool_name not in self.get_pool_name_list():
+                raise ValueError(f'Pool {pool_name} not found on this switch')
+        else:
+            pool = self.get_pool_by_ip(ip_address)
+            pool_name = pool.name
+            mask = pool.mask
+        if not hardware_address:
+            hardware_address = self.get_arp_info_by_ip(ip_address).mac
+        hardware_address = format_mac_to_h3c(hardware_address)
+        new_bind_info = None
+        self.system_view()
+        command = f'dhcp server ip-pool {pool_name}'
+        self.execute_command(command)
+        try:
+            if remove_existing:
+                logger.debug(f'Try to remove existing bind info for {ip_address} in pool: {pool_name}.')
+                command = f'undo static-bind ip-address {ip_address}'
+                self.execute_command(command)
+            logger.info(f'Bind static dhcp {ip_address} {mask} {hardware_address} to pool {pool_name}.')
+            command = f'static-bind ip-address {ip_address} mask {mask} hardware-address {hardware_address}'
+            output = self.execute_command(command)
+            if 'The IP address has already been bound' in output:
+                raise ValueError(f'IP address {ip_address} has already been bound, pool:{pool_name}')
+            new_bind_info = StaticBindInfo(ip_address, mask, hardware_address, pool_name)
+        except (TimeoutError, ValueError) as e:
+            logger.error(f'Failed to bind {ip_address} {mask} {hardware_address}, pool:{pool_name}, error:{str(e)}')
+            raise
+
+        if new_bind_info:
+            self.need_save = True
+            if self._static_bind_info_list:
+                self._static_bind_info_list.append(new_bind_info)
+        self.system_view()  # return to system view
+        return new_bind_info
