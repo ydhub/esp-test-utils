@@ -1,6 +1,7 @@
 import logging
 import os
 import pathlib
+import sys
 from typing import Any, List, Optional
 
 import yaml
@@ -38,7 +39,7 @@ class EnvConfig:
         - Current working directory
         - project root directory
         - ci-test-runner-configs (with runner description) under project root directory
-        - <HOME>/test_env_config/
+        - <HOME>/test_env_config/  # non-win32
 
     Support input variables from console if run tests locally other than CI.
 
@@ -100,7 +101,8 @@ class EnvConfig:
             search_dirs.append(_proj_path)
             search_dirs.append(_proj_path / 'ci-test-runner-configs' / os.environ.get('CI_RUNNER_DESCRIPTION', '.'))
         # Add home directory
-        search_dirs.append(pathlib.Path.home() / 'test_env_config')
+        if sys.platform != 'win32':
+            search_dirs.append(pathlib.Path.home() / 'test_env_config')
         return [str(d) for d in search_dirs if d.is_dir()]
 
     @classmethod

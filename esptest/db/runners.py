@@ -1,3 +1,5 @@
+"""This module is not for production use."""
+
 import contextlib
 import csv
 from typing import Any, Dict, Generator, List, Optional
@@ -85,7 +87,8 @@ class RunnerDB:
         with self.open_session() as session:
             runners = session.all_runners()
             fields = [c.name for c in Runner.__table__.columns]
-            with open(csv_file, 'w', encoding='utf-8') as f:
+            # newline='' is used to avoid extra newline in the CSV file (on Windows)
+            with open(csv_file, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(fields)
                 for runner in runners:

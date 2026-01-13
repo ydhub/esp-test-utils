@@ -1,11 +1,13 @@
 import ipaddress
 import socket
+import sys
 from socket import AddressFamily  # type hint
 from typing import Iterator, List
 
 import psutil
 
 from ..logger import get_logger
+from .mac import normalize_mac
 
 # netifaces needs a new maintaine
 # https://github.com/al45tair/netifaces/issues/78
@@ -164,13 +166,21 @@ def get_mac_by_interface(interface: str) -> str:
         interface (str): net interface name
 
     Returns:
-        str: mac address
+        str: mac address (lower case)
     """
     if_addrs = psutil.net_if_addrs()
+    mac_addr = ''
     for addr in if_addrs[interface]:
-        if addr.family == socket.AF_PACKET:
-            assert isinstance(addr.address, str)
-            return addr.address
+        if sys.platform == 'win32':
+            if addr.family == socket.AF_LINK:
+                assert isinstance(addr.address, str)
+                mac_addr = addr.address
+        else:
+            if addr.family == socket.AF_PACKET:
+                assert isinstance(addr.address, str)
+                mac_addr = addr.address
+    if mac_addr:
+        return normalize_mac(mac_addr).lower()
     raise ValueError(f'Failed to get addr info from {interface}')
 
 
@@ -185,9 +195,14 @@ def get_interface_by_mac(mac_addr: str) -> str:
     """
     for interface, addrs in psutil.net_if_addrs().items():
         for addr in addrs:
-            if addr.family != socket.AF_PACKET:
-                continue
-            if addr.address == mac_addr:
+            if sys.platform == 'win32':
+                if addr.family != socket.AF_LINK:
+                    continue
+            else:
+                if addr.family != socket.AF_PACKET:
+                    continue
+
+            if normalize_mac(addr.address).lower() == mac_addr.lower():
                 assert isinstance(interface, str)
                 return interface
     raise ValueError(f'Failed to get interface with mac {mac_addr}')

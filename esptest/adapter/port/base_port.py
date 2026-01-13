@@ -5,12 +5,11 @@ import logging
 import os
 import queue
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass
 from typing import overload
-
-import pexpect.spawnbase
 
 import esptest.common.compat_typing as t
 
@@ -18,6 +17,18 @@ from ...common import timestamp_str, to_bytes, to_str
 from ...common.decorators import deprecated
 from ...interface.port import PortInterface
 from ...logger import get_logger
+
+if sys.platform == 'win32':
+    import pexpect
+    from pexpect.exceptions import ExceptionPexpect
+    from pexpect.spawnbase import SpawnBase
+    # from wexpect import SpawnPipe as SpawnBase
+    # from wexpect import ExceptionPexpect
+else:
+    import pexpect
+    from pexpect.exceptions import ExceptionPexpect
+    from pexpect.spawnbase import SpawnBase
+
 
 logger = get_logger('port')
 NEVER_MATCHED_MAGIC_STRING = 'o6K,Q.(w+~yr~N9R'
@@ -81,7 +92,7 @@ class SpawnConfig:
     # TODO: monitors
 
 
-class PortSpawn(pexpect.spawnbase.SpawnBase, t.Generic[T]):
+class PortSpawn(SpawnBase, t.Generic[T]):
     """Create a new class for pexpect with port read()/write() method.
 
     There's some reason that we can not use pyserial with pexpect.fdpexpect directly:
@@ -278,7 +289,7 @@ class BasePort(PortInterface, t.Generic[T]):
 
     EXPECT_TIMEOUT_EXCEPTIONS: t.Tuple[t.Type[Exception], ...] = (
         TimeoutError,
-        pexpect.exceptions.ExceptionPexpect,
+        ExceptionPexpect,
     )
     INIT_START_REDIRECT_THREAD: bool = True
     PEXPECT_DEFAULT_TIMEOUT: float = 30

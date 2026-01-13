@@ -1,11 +1,15 @@
 import io
 import logging
 import os
-import pty
 import re
+import sys
 import tempfile
 import time
 import unittest
+from typing import Optional
+
+if sys.platform != 'win32':
+    import pty
 
 import pytest
 import serial
@@ -42,6 +46,7 @@ def test_base_dut_isinstance() -> None:
         my_func(dut)
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows does not support pty')
 class TestSerialDut(unittest.TestCase):
     def setUp(self) -> None:
         self.master, self.slave = pty.openpty()
@@ -300,6 +305,62 @@ class TestSerialDut(unittest.TestCase):
         finally:
             dut.close()
             self._close_file_io(fd_master)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only test')
+class TestSerialDutWin32(unittest.TestCase):
+    def setUp(self) -> None:
+        self.serial_port = 'loop://'
+        self.dut_obj: Optional[serial.SerialBase] = None
+
+    def tearDown(self) -> None:
+        if self.dut_obj:
+            self.dut_obj.close()
+
+    def test_serial_dut_expect(self) -> None:
+        self.dut_obj = serial.serial_for_url(self.serial_port, 115200, timeout=0.001)
+        ser = self.dut_obj
+        fd_master = ser
+        assert fd_master
+        dut = SerialDut(ser, 'MyDut')
+        t0 = time.perf_counter()
+        try:
+            # Test expect bytes success
+            fd_master.write(b'ccc')
+            dut.expect(b'ccc', timeout=1)
+            # Test expect regex
+            fd_master.write(b'START,regex_value,END')
+            match1 = dut.expect(re.compile(r'START,(\w+),END'), timeout=1)
+            assert match1
+            assert match1.group(1) == 'regex_value'
+            # Test expect regex with bytes
+            fd_master.write(b'START,regex_value2,END')
+            match2 = dut.expect(re.compile(rb'START,(\w+),END'), timeout=1)
+            assert match2
+            assert match2.group(1) == b'regex_value2'
+            # Test expect read all output dat
+            # Test regex flags
+            fd_master.write(b'data1 data1 data1 \r\n')
+            time.sleep(0.1)
+            fd_master.write(b'data2 data2 data2')
+            time.sleep(0.1)
+            match3 = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0)
+            assert match3
+            assert match3.group(0) == 'data1 data1 data1 \r\ndata2 data2 data2'
+            # Test expect more than one match
+            # Hop to got match twice
+            fd_master.write(b'match1, match2\n')
+            time.sleep(0.1)
+            match4 = dut.expect(re.compile(r'(match1|match2)', re.DOTALL), timeout=0)
+            assert match4
+            assert match4.group(0) == 'match1'
+            match5 = dut.expect(re.compile(r'(match1|match2)', re.DOTALL), timeout=0)
+            assert match5
+            assert match5.group(0) == 'match2'
+        finally:
+            dut.close()
+        # Check Total time, All expect should block no more than one seconds other than the failure one
+        assert time.perf_counter() - t0 < 2
 
 
 if __name__ == '__main__':

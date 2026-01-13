@@ -6,7 +6,7 @@ from ...common.generator import get_next_index
 from ...interface.dut import DutInterface
 from ...logger import get_logger
 from ..port.base_port import RawPort
-from ..port.serial_port import SerialExt, SerialPort
+from ..port.serial_port import SerialExt, SerialPort, serial_add_mixin
 from .create_dut import create_dut
 from .dut_base import DutBase, DutConfig
 from .esp_dut import EspDut
@@ -60,6 +60,11 @@ def dut_wrapper(dut, name='', log_file='', wrap_cls=None):  # type: ignore
     elif isinstance(dut, serial.Serial):
         _name = name or dut.port.split('/')[-1]
         dut.__class__ = SerialExt
+        dut_config = DutConfig(opened_port=dut, name=_name, log_file=log_file)
+        wrap_dut = wrap_cls(dut_config=dut_config)
+    elif isinstance(dut, serial.SerialBase):
+        _name = name or dut.port.split('/')[-1]
+        dut.__class__ = serial_add_mixin(dut.__class__)
         dut_config = DutConfig(opened_port=dut, name=_name, log_file=log_file)
         wrap_dut = wrap_cls(dut_config=dut_config)
     elif isinstance(dut, RawPort):
