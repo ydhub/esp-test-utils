@@ -42,6 +42,7 @@ include = ["esptest"]
         "packaging",
         "rich",
         "sqlalchemy",
+        "wexpect; sys_platform == 'win32'",
         "typing_extensions; python_version < '3.11'"
     ]
 

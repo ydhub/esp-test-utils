@@ -1,8 +1,9 @@
+import io
 import os
 import subprocess
+import sys
 import time
 
-import pexpect
 import psutil
 
 import esptest.common.compat_typing as t
@@ -13,16 +14,26 @@ from .base_port import BasePort, RawPort
 logger = get_logger('shell_port')
 
 
+if sys.platform == 'win32':
+    import wexpect as pexpect  # pexpect.spawn
+
+    DEFAULT_SHELL = 'cmd.exe'
+else:
+    import pexpect
+
+    DEFAULT_SHELL = '/bin/bash'
+
+
 class ShellRaw(RawPort):
     """A subprocess Raw Port class that supports shell read, write
 
     is a subclass of RawPort
     """
 
-    def __init__(self, cmd: str = '/bin/bash', env: t.Optional[t.Dict[str, str]] = None) -> None:
+    def __init__(self, cmd: t.Union[str, t.List[str]] = '', env: t.Optional[t.Dict[str, str]] = None) -> None:
         self.env = env or os.environ.copy()
         self.env['PYTHONUNBUFFERED'] = 'true'  # for python scripts, disable output buffering
-        self.cmd = cmd
+        self.cmd = cmd or DEFAULT_SHELL
         self.proc: t.Optional[subprocess.Popen] = None
         self.read_timeout = 0.002  # default read_timeout
         self.open()
@@ -31,7 +42,7 @@ class ShellRaw(RawPort):
         if not self.proc:
             self.proc = subprocess.Popen(  # pylint: disable=consider-using-with
                 self.cmd,
-                shell=True,
+                shell=bool(not isinstance(self.cmd, list)),
                 env=self.env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -130,10 +141,17 @@ class PexpectPort(BasePort[InvalidRaw]):
         log_file: str = '',
         **kwargs: t.Any,
     ) -> None:
+        if sys.platform == 'win32':
+            raise NotImplementedError('PexpectPort is not supported on Windows now.')
         self._cmd = cmd
         raw_port = InvalidRaw()
         self._pexpect_spawn: t.Optional[pexpect.spawn] = None  # change type
-        self.log_file_f = open(log_file, 'wb') if log_file else None  # pylint: disable=consider-using-with
+        self.log_file_f: t.Optional[io.BufferedWriter] = None
+        if log_file:
+            os.makedirs(os.path.dirname(log_file) or '.', exist_ok=True)
+            self.log_file_f = open(log_file, 'wb')  # pylint: disable=consider-using-with
+        else:
+            self.log_file_f = None
         super().__init__(raw_port, name, log_file, **kwargs)
 
     @property
@@ -152,8 +170,12 @@ class PexpectPort(BasePort[InvalidRaw]):
             if self._pexpect_spawn:
                 self._pexpect_spawn.logfile = None  # type: ignore
             self.log_file_f.close()
+        if new_log_file:
+            os.makedirs(os.path.dirname(new_log_file) or '.', exist_ok=True)
+            self.log_file_f = open(new_log_file, 'wb')  # pylint: disable=consider-using-with
+        else:
+            self.log_file_f = None
         if self._pexpect_spawn:
-            self.log_file_f = open(new_log_file, 'wb') if new_log_file else None  # pylint: disable=consider-using-with
             self._pexpect_spawn.logfile = self.log_file_f  # type: ignore
         self._log_file = new_log_file
 

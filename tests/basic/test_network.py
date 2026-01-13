@@ -1,24 +1,60 @@
 import socket
+import sys
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import psutil
 import pytest
-from psutil._common import snicaddr
+
+# final exported symbol
+if TYPE_CHECKING:
+    from typing import NamedTuple
+
+    class snicaddr(NamedTuple):
+        family: int
+        address: str
+        netmask: str | None
+        broadcast: str | None
+        ptp: str | None
+else:
+    try:
+        from psutil._common import snicaddr  # old versions
+    except ImportError:
+        try:
+            from psutil._ntuples import snicaddr  # newer versions
+        except ImportError:
+            from typing import NamedTuple
+
+            class snicaddr(NamedTuple):
+                family: int
+                address: str
+                netmask: str | None
+                broadcast: str | None
+                ptp: str | None
+
 
 from esptest.network import netif
 from esptest.network.mac import mac_offset
 from esptest.network.nic import Nic
 
+if sys.platform != 'win32':
+    AF_MAC_FAMILY = socket.AF_PACKET
+    IF1_MAC_ADDR = '11:22:33:44:55:66'
+else:
+    AF_MAC_FAMILY = socket.AF_LINK
+    IF1_MAC_ADDR = '11-22-33-44-55-66'
+
+
 MOCK_NETIF_ADDRS = {
     'lo': [
         snicaddr(socket.AF_INET, '127.0.0.1', '255.0.0.0', None, None),
         snicaddr(socket.AF_INET6, '::1', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', None, None),
-        snicaddr(socket.AF_PACKET, '00:00:00:00:00:00', None, None, None),
+        snicaddr(AF_MAC_FAMILY, '00:00:00:00:00:00', None, None, None),
     ],
     'if1': [
         snicaddr(socket.AF_INET, '10.0.0.2', '255.255.255.0', None, None),
         snicaddr(socket.AF_INET6, r'fe80::2%if1', 'ffff:ffff:ffff:ffff::', None, None),
-        snicaddr(socket.AF_PACKET, '11:22:33:44:55:66', None, None, None),
+        snicaddr(AF_MAC_FAMILY, IF1_MAC_ADDR, None, None, None),
     ],
 }
 

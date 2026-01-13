@@ -5,6 +5,13 @@ import pytest
 
 from esptest.iperf_utility.iperf_results import IperfResult, IperfResultsRecord
 
+try:
+    import pyecharts  # noqa: F401
+
+    has_pyecharts = True
+except ImportError:
+    has_pyecharts = False
+
 
 def test_iperf_result_to_dict() -> None:
     res = IperfResult(avg=100, rssi=-10)
@@ -14,6 +21,7 @@ def test_iperf_result_to_dict() -> None:
     assert 'type' not in d
 
 
+@pytest.mark.skipif(not has_pyecharts, reason='pyecharts not installed')
 def test_iperf_record(tmp_path: Path) -> None:
     record = IperfResultsRecord()
     # results data

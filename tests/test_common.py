@@ -1,5 +1,6 @@
 import random
 import string
+import sys
 from datetime import datetime
 from unittest import mock
 
@@ -52,11 +53,15 @@ def test_to_str_to_bytes() -> None:
 def test_run_cmd() -> None:
     output = run_cmd('echo hello')
     assert output == 'hello\n'
-    output = run_cmd(['echo', 'world'])
+    if sys.platform != 'win32':
+        output = run_cmd(['echo', 'world'])
+    else:
+        output = run_cmd(['cmd.exe', '/c', 'echo world'])
     assert output == 'world\n'
     with pytest.raises(RunCmdError) as e:
         run_cmd('invalid_command')
-    assert 'not found' in str(e) and 'invalid_command' in str(e)
+    assert 'invalid_command' in str(e)
+    assert 'not found' in str(e) or '不是内部或外部命令' in str(e)
 
 
 if __name__ == '__main__':

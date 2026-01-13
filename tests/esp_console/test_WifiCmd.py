@@ -2,11 +2,15 @@ import io
 import logging
 import os
 import pathlib
-import pty
 import re
+import sys
 import threading
 import time
 import unittest
+
+if sys.platform != 'win32':
+    import pty
+
 
 import pytest
 import serial
@@ -77,6 +81,7 @@ def test_wifi_cmd_sta_connect_dut() -> None:
         assert info.channel == int(os.environ['TEST_AP_CHANNEL'])
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows does not support pty')
 class TestWifiCmd(unittest.TestCase):
     def setUp(self) -> None:
         self.master, self.slave = pty.openpty()
@@ -140,6 +145,56 @@ class TestWifiCmd(unittest.TestCase):
                 return info
         finally:
             self._close_file_io(fw_master)
+
+    def test_wifi_cmd_sta_connect_v1(self) -> None:
+        info = self._test_wifi_cmd_sta_connect_suc('wifi_cmd_connected_1.log')
+        assert info.bssid == '30:5a:3a:74:90:f0'
+        assert info.rssi == -33
+
+    def test_wifi_cmd_sta_connect_v2(self) -> None:
+        info = self._test_wifi_cmd_sta_connect_suc('wifi_cmd_connected_2.log')
+        assert info.bssid == '30:5a:3a:74:90:f0'
+        assert info.rssi == -31
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only test')
+class TestWifiCmdWin32(unittest.TestCase):
+    def setUp(self) -> None:
+        self.dut_obj = None
+
+    def tearDown(self) -> None:
+        if self.dut_obj:
+            self.dut_obj.close()
+
+    @staticmethod
+    def _serial_append_log(ser: serial.SerialBase, log_file: str) -> None:
+        with open(str(TEST_FILES_PATH / log_file), 'rb') as f:
+            data = f.read()
+        while len(data) > 2048:
+            ser.write(data[:2048])
+            data = data[2048:]
+            time.sleep(0.01)
+        ser.write(data)
+
+    def _test_wifi_cmd_sta_connect_suc(self, log_file: str) -> ConnectedInfo:
+        ser = serial.serial_for_url('loop://', 115200, timeout=0.001)
+
+        with dut_wrapper(ser, 'MyDut') as dut:
+            kwargs = {'ser': ser, 'log_file': log_file}
+            timer = threading.Timer(0.5, self._serial_append_log, kwargs=kwargs)
+            timer.start()
+
+            conn_cmd = WifiCmd.gen_connect_cmd('testap-11', password='00000000')
+            info = WifiCmd.connect_to_ap(
+                dut,
+                conn_cmd,
+                timeout=5,
+            )
+            assert info.ssid == 'testap-11'
+            assert info.channel == 11
+            timer.cancel()
+            timer.join()
+            return info
 
     def test_wifi_cmd_sta_connect_v1(self) -> None:
         info = self._test_wifi_cmd_sta_connect_suc('wifi_cmd_connected_1.log')
