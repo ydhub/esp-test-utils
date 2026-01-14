@@ -88,8 +88,8 @@ def copy_bin_to_new_path(
         if not part_csv.is_file() and part_bin.is_file():
             assert parttool.is_file(), 'Can not find gen_esp32part.py'
             try:
-                _cmd = f'python {str(parttool.absolute())} {str(part_bin)} {str(part_csv)}'
-                subprocess.check_call(_cmd, shell=True)
+                _cmd = ['python', str(parttool.absolute()), str(part_bin), str(part_csv)]
+                subprocess.check_call(_cmd, shell=False)
             except subprocess.SubprocessError as e:
                 logger.error(f'Failed to gen partition-table.csv: {str(e)}')
 

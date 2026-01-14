@@ -48,7 +48,13 @@ class SDKConfig(t.Dict[str, t.Any]):
                 for line in f.readlines():
                     if line.startswith('CONFIG_') and '=' in line:
                         key, value = line.split('=', 1)
-                        key = key.strip().removeprefix('CONFIG_')
+                        key = key.strip()
+                        if hasattr(key, 'removeprefix'):
+                            key = key.removeprefix('CONFIG_')
+                        else:
+                            # python < 3.9 does not support removeprefix
+                            if key.startswith('CONFIG_'):
+                                key = key[7:]
                         value = value.strip()
                         sdkconfig[key] = (
                             True
@@ -62,8 +68,14 @@ class SDKConfig(t.Dict[str, t.Any]):
                             else value
                         )
                     elif line.startswith('# CONFIG_') and line.strip().endswith(' is not set'):
-                        key = line.strip().removeprefix('# CONFIG_').removesuffix(' is not set')
-                        sdkconfig[key] = False
+                        config_name = line.strip()
+                        if hasattr(config_name, 'removeprefix'):
+                            config_name = config_name.removeprefix('# CONFIG_').removesuffix(' is not set')
+                        else:
+                            # python < 3.9 does not support removeprefix
+                            config_name = config_name[9:] if config_name.startswith('# CONFIG_') else config_name
+                            config_name = config_name[:-11] if config_name.endswith(' is not set') else config_name
+                        sdkconfig[config_name] = False
                         continue
         return sdkconfig
 
@@ -177,8 +189,8 @@ class ParseBinPath:
         part_bin = Path(self.bin_path) / 'partition_table' / 'partition-table.bin'
         if self.parttool_path and not part_csv.is_file() and part_bin.is_file():
             try:
-                _cmd = f'python {self.parttool_path} {str(part_bin)} {str(part_csv)}'
-                subprocess.check_call(_cmd, shell=True)
+                _cmd = ['python', self.parttool_path, str(part_bin), str(part_csv)]
+                subprocess.check_call(_cmd, shell=False)
             except subprocess.SubprocessError as e:
                 logger.error(f'Failed to gen partition-table.csv: {str(e)}')
 
@@ -284,7 +296,7 @@ class ParseBinPath:
             args += list(self._gen_erase_nvs_bin())
         return args
 
-    def flash_nvs_args(self, nvs_bin: str = '') -> list[str]:
+    def flash_nvs_args(self, nvs_bin: str = '') -> t.List[str]:
         args = self._write_flash_args_common()
         for part in self.parse_partitions():
             if part.name != 'nvs':

@@ -29,10 +29,10 @@ def test_shell_raw_open_close_win32() -> None:
     assert raw_port.proc is not None
     pid = raw_port.proc.pid
     output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True).decode('utf-8', errors='ignore')
-    assert 'cmd.exe' in output
+    assert 'PING.EXE' in output
     raw_port.close()
     output = subprocess.check_output(f'tasklist /FI "PID eq {pid}"', shell=True).decode('utf-8', errors='ignore')
-    assert 'cmd.exe' not in output
+    assert 'PING.EXE' not in output
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='windows does not support ps')

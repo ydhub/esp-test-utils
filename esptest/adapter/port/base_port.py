@@ -279,6 +279,27 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self._line_cache = b''
 
 
+def handle_expect_timeout(func: t.Callable) -> t.Callable:
+    """Raise same type exception ExpectTimeout for ports from different frameworks"""
+
+    @functools.wraps(func)
+    def wrap(obj: 'BasePort', *args, **kwargs):  # type: ignore
+        try:
+            result = func(obj, *args, **kwargs)
+        except obj.expect_timeout_exceptions as e:
+            data_in_buffer = ''
+            try:
+                if obj._pexpect_spawn:  # pylint: disable=protected-access
+                    data_in_buffer = obj._pexpect_spawn.before  # pylint: disable=protected-access
+            except AttributeError:
+                pass  # ignore
+            obj.logger.debug(f'ExpectTimeout: {str(e)}, data_in_buffer={repr(data_in_buffer)}')
+            raise ExpectTimeout(str(e), data_in_buffer=data_in_buffer) from e
+        return result
+
+    return wrap
+
+
 class BasePort(PortInterface, t.Generic[T]):
     """A class to simply port methods for all devices / shell / sockets to similar usage
 
@@ -417,25 +438,6 @@ class BasePort(PortInterface, t.Generic[T]):
         if stopped:
             self.start_redirect_thread()
 
-    @staticmethod
-    def handle_expect_timeout(func: t.Callable) -> t.Callable:
-        """Raise same type exception ExpectTimeout for ports from different frameworks"""
-
-        @functools.wraps(func)
-        def wrap(self, *args, **kwargs):  # type: ignore
-            try:
-                result = func(self, *args, **kwargs)
-            except self.expect_timeout_exceptions as e:
-                try:
-                    data_in_buffer = self._pexpect_spawn.before  # pylint: disable=protected-access
-                except AttributeError:
-                    data_in_buffer = ''
-                self.logger.debug(f'ExpectTimeout: {str(e)}, data_in_buffer={repr(data_in_buffer)}')
-                raise ExpectTimeout(str(e), data_in_buffer=data_in_buffer) from e
-            return result
-
-        return wrap
-
     def write(self, data: t.AnyStr) -> None:
         if self._pexpect_spawn:
             return self._pexpect_spawn.write(data)
@@ -457,9 +459,9 @@ class BasePort(PortInterface, t.Generic[T]):
     @overload
     def expect(self, pattern: bytes, timeout: float = 30) -> None: ...
     @overload
-    def expect(self, pattern: re.Pattern[str], timeout: float = 30) -> re.Match[str]: ...
+    def expect(self, pattern: 're.Pattern[str]', timeout: float = 30) -> 're.Match[str]': ...
     @overload
-    def expect(self, pattern: re.Pattern[bytes], timeout: float = 30) -> re.Match[bytes]: ...
+    def expect(self, pattern: 're.Pattern[bytes]', timeout: float = 30) -> 're.Match[bytes]': ...
 
     @handle_expect_timeout
     def expect(self, pattern, timeout=PEXPECT_DEFAULT_TIMEOUT):  # type: ignore

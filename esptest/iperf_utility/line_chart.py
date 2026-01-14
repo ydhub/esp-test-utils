@@ -1,10 +1,12 @@
-from typing import Dict, Optional, Sequence, TypeAlias, Union
+import esptest.common.compat_typing as t
 
 from ..common.decorators import enhance_import_error_message
 from ..logger import get_logger
 
-XVarType: TypeAlias = Union[int, float, str]
-YVarType: TypeAlias = Union[Dict[str, Union[int, float, None]], Dict[str, int], Dict[str, float], Dict[str, None]]
+XVarType: t.TypeAlias = t.Union[int, float, str]
+YVarType: t.TypeAlias = t.Union[
+    t.Dict[str, t.Union[int, float, None]], t.Dict[str, int], t.Dict[str, float], t.Dict[str, None]
+]
 logger = get_logger('iperf-util')
 
 
@@ -12,8 +14,8 @@ logger = get_logger('iperf-util')
 def draw_line_chart_basic(  # pylint: disable=too-many-positional-arguments
     file_name: str,
     title: str,
-    y_data: Sequence[YVarType],
-    x_data: Optional[Sequence[XVarType]] = None,
+    y_data: t.Sequence[YVarType],
+    x_data: t.Optional[t.Sequence[XVarType]] = None,
     x_label: str = 'x',
     y_label: str = 'y',
     x_scale: bool = True,
