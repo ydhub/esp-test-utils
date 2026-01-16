@@ -1,3 +1,10 @@
+## v0.3.1 (2026-01-16)
+
+
+- feat: add diff values for pyecharts
+- feat: add secure boot check
+- fix: pass pytest on windows
+
 ## v0.3.0 (2025-12-10)
 
 
