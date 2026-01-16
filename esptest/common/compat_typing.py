@@ -1,6 +1,6 @@
 # pylint: disable=unused-import
-# flake8: noqa: F401
-# ruff: noqa: F401
+# flake8: noqa: F401,F404
+# ruff: noqa: F401,F404
 import sys
 from typing import (
     IO,
@@ -15,7 +15,7 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Protocol,
+    Sequence,
     Set,
     Tuple,
     Type,
@@ -24,6 +24,12 @@ from typing import (
     cast,
     overload,
 )
+
+if sys.version_info >= (3, 8):
+    from typing import Protocol
+else:
+    from typing_extensions import Protocol
+
 
 if sys.version_info >= (3, 9):
     from contextlib import AbstractContextManager as ContextManager

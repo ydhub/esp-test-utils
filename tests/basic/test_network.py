@@ -41,7 +41,7 @@ if sys.platform != 'win32':
     AF_MAC_FAMILY = socket.AF_PACKET
     IF1_MAC_ADDR = '11:22:33:44:55:66'
 else:
-    AF_MAC_FAMILY = socket.AF_LINK
+    AF_MAC_FAMILY = psutil.AF_LINK
     IF1_MAC_ADDR = '11-22-33-44-55-66'
 
 

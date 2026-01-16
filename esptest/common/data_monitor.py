@@ -15,9 +15,9 @@ class _DataCache:
 class DataMonitor:
     def __init__(
         self,
-        pattern: t.Union[str, re.Pattern[str]],
+        pattern: t.Union[str, 're.Pattern[str]'],
         # callback(key,name,match,time)
-        callback: t.Optional[t.Callable[[str, str, t.Optional[re.Match[str]], float], None]] = None,
+        callback: t.Optional[t.Callable[[str, str, t.Optional['re.Match[str]'], float], None]] = None,
         # monitor on specific port names
         port_names: t.Optional[t.List[str]] = None,
     ) -> None:

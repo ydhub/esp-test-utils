@@ -1,6 +1,6 @@
 [build-system]
     build-backend = "setuptools.build_meta"
-    requires      = ["setuptools-scm>=8.0", "setuptools>=60"]
+    requires      = ["setuptools-scm>=7.0", "setuptools>=40"]
 
 [tool.setuptools_scm]
 
@@ -42,7 +42,6 @@ include = ["esptest"]
         "packaging",
         "rich",
         "sqlalchemy",
-        "wexpect; sys_platform == 'win32'",
         "typing_extensions; python_version < '3.11'"
     ]
 

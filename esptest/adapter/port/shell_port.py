@@ -1,13 +1,16 @@
 import io
 import os
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 import psutil
 
 import esptest.common.compat_typing as t
 
+from ...common.shell import ensure_windows_env
 from ...logger import get_logger
 from .base_port import BasePort, RawPort
 
@@ -15,9 +18,12 @@ logger = get_logger('shell_port')
 
 
 if sys.platform == 'win32':
-    import wexpect as pexpect  # pexpect.spawn
+    # windows does not support pexpect.spawn
+    # import wexpect as pexpect  # pexpect.spawn
+    import pexpect  # pexpect.spawn
 
     DEFAULT_SHELL = 'cmd.exe'
+    ensure_windows_env()
 else:
     import pexpect
 
@@ -31,11 +37,16 @@ class ShellRaw(RawPort):
     """
 
     def __init__(self, cmd: t.Union[str, t.List[str]] = '', env: t.Optional[t.Dict[str, str]] = None) -> None:
+        ensure_windows_env()
         self.env = env or os.environ.copy()
         self.env['PYTHONUNBUFFERED'] = 'true'  # for python scripts, disable output buffering
         self.cmd = cmd or DEFAULT_SHELL
         self.proc: t.Optional[subprocess.Popen] = None
         self.read_timeout = 0.002  # default read_timeout
+        # For Windows: use a thread and queue for non-blocking reads
+        self._read_queue: t.Optional[queue.Queue] = None
+        self._read_thread: t.Optional[threading.Thread] = None
+        self._read_thread_stop = threading.Event()
         self.open()
 
     def open(self) -> None:
@@ -49,10 +60,42 @@ class ShellRaw(RawPort):
                 stderr=subprocess.STDOUT,
             )
             # Set stdout to non-blocking
-            os.set_blocking(self.proc.stdout.fileno(), False)  # type: ignore
+            if sys.platform != 'win32':
+                os.set_blocking(self.proc.stdout.fileno(), False)  # type: ignore
+            else:
+                # Windows: subprocess pipes are blocking by default and cannot be set to non-blocking
+                # Use a background thread to read from the pipe
+                self._read_queue = queue.Queue()
+                self._read_thread_stop.clear()
+                self._read_thread = threading.Thread(target=self._read_stdout_thread, daemon=True)
+                self._read_thread.start()
+
+    def _read_stdout_thread(self) -> None:
+        """Background thread to read from stdout on Windows (where pipes are blocking)."""
+        if not self.proc or not self._read_queue:
+            return
+        try:
+            while not self._read_thread_stop.is_set():
+                try:
+                    # Read line by line to avoid blocking too long on Windows
+                    data = self.proc.stdout.readline()  # type: ignore
+                    if data:
+                        self._read_queue.put(data)
+                    elif self.proc.poll() is not None:
+                        # Process has ended
+                        break
+                except (OSError, ValueError):
+                    break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error(f'Error in read_stdout_thread {type(e)}: {str(e)}')
 
     def close(self) -> None:
         """Close subprocess."""
+        # Stop the read thread on Windows
+        if self._read_thread_stop:
+            self._read_thread_stop.set()
+        if self._read_thread:
+            self._read_thread.join(timeout=0.1)
         if self.proc:
             if self.proc.pid:
                 try:
@@ -95,10 +138,34 @@ class ShellRaw(RawPort):
 
     def read_bytes_nonblocking(self, size: int = -1) -> bytes:
         """non-blocking read bytes"""
-        if self.proc:
+        if not self.proc:
+            return b''
+        if sys.platform != 'win32':
             self.proc.stdout.flush()  # type: ignore
             return self.proc.stdout.read(size)  # type: ignore
-        return b''
+        # Windows: read from the queue
+        try:
+            if not self._read_queue:
+                return b''
+            # On Windows, use the queue from the background thread
+            data = b''
+            while True:
+                try:
+                    self.proc.stdout.flush()  # type: ignore
+                    chunk = self._read_queue.get_nowait()
+                    data += chunk
+                    # If we have enough data and size is specified, stop reading
+                    if size > 0 and len(data) >= size:  # pylint: disable=chained-comparison
+                        break
+                except queue.Empty:
+                    break
+            # Return the requested amount or all available data
+            if size > 0:
+                return data[:size]
+            return data
+        except (OSError, ValueError) as e:
+            logger.error(f'Error in read_bytes_nonblocking {type(e)}: {str(e)}')
+            raise
 
 
 class ShellPort(BasePort[ShellRaw]):
@@ -107,7 +174,7 @@ class ShellPort(BasePort[ShellRaw]):
     def __init__(
         self,
         cmd: str = '/bin/bash',
-        env: t.Optional[dict[str, str]] = None,
+        env: t.Optional[t.Dict[str, str]] = None,
         name: str = '',
         log_file: str = '',
         **kwargs: t.Any,
@@ -180,7 +247,7 @@ class PexpectPort(BasePort[InvalidRaw]):
         self._log_file = new_log_file
 
     @property
-    def spawn(self) -> t.Optional[pexpect.spawn]:  # type: ignore
+    def spawn(self) -> 't.Optional[pexpect.spawn]':  # type: ignore
         """Allow the use of pexpect spawn enhancements, if pexpect process is available"""
         return self._pexpect_spawn
 

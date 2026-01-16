@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from itertools import product
-from typing import Callable, Dict, Iterable, List, Optional, Set, TypeAlias, Union
+
+import esptest.common.compat_typing as t
 
 try:
     from typing import Self
@@ -9,7 +10,7 @@ except ImportError:
 
 from ..logger import get_logger
 
-VarType: TypeAlias = Union[int, float, str]
+VarType: t.TypeAlias = t.Union[int, float, str]
 logger = get_logger('iperf-util')
 
 
@@ -20,7 +21,7 @@ class IperfResult:
     avg: float
     max: float = -1  # Can be ignored
     min: float = -1  # Can be ignored
-    throughput_list: Optional[List[float]] = None
+    throughput_list: t.Optional[t.List[float]] = None
     unit: str = 'Mbits/sec'
     min_heap: int = 0
     bandwidth: int = 0  # 20/40
@@ -28,14 +29,14 @@ class IperfResult:
     rssi: float = -128
     type: str = 'iperf'  # tcp_tx, tcp_rx, udp_tx, udp_rx
     target: str = ''  # esp32, esp32s2, etc.
-    errors: Optional[List[str]] = None
+    errors: t.Optional[t.List[str]] = None
     # Advanced
     att: int = 0
     config_name: str = 'unknown'
     ap_name: str = 'unknown'
     version: str = 'unknown'
 
-    def to_dict(self, with_keys: Optional[List[str]] = None) -> Dict[str, float]:
+    def to_dict(self, with_keys: t.Optional[t.List[str]] = None) -> t.Dict[str, float]:
         """_summary_
 
         Args:
@@ -59,10 +60,10 @@ class IperfResultsRecord:
     """record, analysis iperf test results for different configs"""
 
     def __init__(self) -> None:
-        self._results: List[IperfResult] = []
-        self._aps: Set[str] = set()
-        self._targets: Set[str] = set()
-        self._types: Set[str] = set()
+        self._results: t.List[IperfResult] = []
+        self._aps: t.Set[str] = set()
+        self._targets: t.Set[str] = set()
+        self._types: t.Set[str] = set()
 
     def append_result(self, result: IperfResult) -> None:
         self._results.append(result)
@@ -70,7 +71,7 @@ class IperfResultsRecord:
         self._targets.add(result.target)
         self._types.add(result.type)
 
-    def part(self, filter_fn: Callable[[IperfResult], bool]) -> 'Self':
+    def part(self, filter_fn: t.Callable[[IperfResult], bool]) -> 'Self':
         new_record = self.__class__()
         for result in self._results:
             if filter_fn(result):
@@ -81,15 +82,15 @@ class IperfResultsRecord:
     def _dict_by_key(
         self,
         key: str,
-        filter_fn: Optional[Callable[[IperfResult], bool]] = None,
+        filter_fn: t.Optional[t.Callable[[IperfResult], bool]] = None,
         reverse: bool = False,
-    ) -> Dict[VarType, List[IperfResult]]:
+    ) -> t.Dict[VarType, t.List[IperfResult]]:
         if not self._results:
             raise ValueError('No iperf test results recorded.')
         key_list = list(sorted({getattr(r, key) for r in self._results}, reverse=reverse))
         if len(key_list) <= 1:
             logger.info(f'Did not find different {key} in iperf test results.')
-        d_key: Dict[VarType, List[IperfResult]] = {k: [] for k in key_list}
+        d_key: t.Dict[VarType, t.List[IperfResult]] = {k: [] for k in key_list}
         for res in self._results:
             if filter_fn and not filter_fn(res):
                 continue
@@ -97,11 +98,13 @@ class IperfResultsRecord:
         return d_key
 
     def dict_by_att(
-        self, filter_fn: Optional[Callable[[IperfResult], bool]] = None
-    ) -> Dict[VarType, List[IperfResult]]:
+        self, filter_fn: t.Optional[t.Callable[[IperfResult], bool]] = None
+    ) -> t.Dict[VarType, t.List[IperfResult]]:
         return self._dict_by_key('att', filter_fn)
 
-    def dict_by_ap(self, filter_fn: Optional[Callable[[IperfResult], bool]] = None) -> Dict[VarType, List[IperfResult]]:
+    def dict_by_ap(
+        self, filter_fn: t.Optional[t.Callable[[IperfResult], bool]] = None
+    ) -> t.Dict[VarType, t.List[IperfResult]]:
         return self._dict_by_key('ap_name', filter_fn)
 
     def _format_label_str(self, base_label: str, ap_name: str = '', target: str = '') -> str:
@@ -117,8 +120,8 @@ class IperfResultsRecord:
 
     @staticmethod
     def _get_matched_result(
-        from_results: Iterable[IperfResult], filter_fn: Callable[[IperfResult], bool]
-    ) -> Optional[IperfResult]:
+        from_results: t.Iterable[IperfResult], filter_fn: t.Callable[[IperfResult], bool]
+    ) -> t.Optional[IperfResult]:
         """Get first matched result by given condition"""
         for result in from_results:
             if filter_fn(result):
@@ -135,12 +138,12 @@ class IperfResultsRecord:
 
         raw_data = self.dict_by_att()
 
-        x_data: List[int] = []
-        y_data: List[Dict[str, Optional[float]]] = []
+        x_data: t.List[int] = []
+        y_data: t.List[t.Dict[str, t.Optional[float]]] = []
         for att, results in raw_data.items():
             assert isinstance(att, int)
             x_data.append(att)
-            _data: Dict[str, Optional[float]] = {}
+            _data: t.Dict[str, t.Optional[float]] = {}
             for ap, target in product(self._aps, self._targets):
                 # pylint: disable=cell-var-from-loop
                 label = self._format_label_str('rssi', ap, target)
@@ -164,12 +167,12 @@ class IperfResultsRecord:
         # draw rssi chart from high rssi to low rssi
         raw_data = self._dict_by_key('rssi', reverse=True)
 
-        x_data: List[float] = []
-        y_data: List[Dict[str, Optional[float]]] = []
+        x_data: t.List[float] = []
+        y_data: t.List[t.Dict[str, t.Optional[float]]] = []
         for rssi, results in raw_data.items():
             assert isinstance(rssi, (int, float))
             x_data.append(-rssi)  # left value is higher rssi
-            _data: Dict[str, Optional[float]] = {}
+            _data: t.Dict[str, t.Optional[float]] = {}
             for ap, target, typ in product(self._aps, self._targets, self._types):
                 # pylint: disable=cell-var-from-loop
                 label = self._format_label_str(typ, ap, target)

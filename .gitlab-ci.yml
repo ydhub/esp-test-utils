@@ -30,20 +30,86 @@ pre-commit-check:
 # ------------------------------------------------------------------------------------------------------
 # Pytest
 # ------------------------------------------------------------------------------------------------------
-pytest-check:
+pytest-linux:
   stage: test
   needs: []
+  image: ${IMG}
   before_script:
     - pip install -e '.[test]'
   script:
-    - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term --cov-report xml:reports/coverage.xml
-  coverage: '/TOTAL.*\s+(\d+)\%/'
+    # - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term --cov-report xml:reports/coverage.xml
+    - export COVERAGE_FILE=.coverage.${CI_JOB_ID}
+    - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term
+  # coverage: '/TOTAL.*\s+(\d+)\%/'
   artifacts:
     paths:
-      - reports/
+      # - reports/
       - '.coverage*'
     reports:
       junit: reports/junit.xml
+    expire_in: 2 days
+  parallel:
+    matrix:
+      - IMG: "python:3.7-bullseye"
+      - IMG: "python:3.11-bookworm"
+      - IMG: "python:3.14-trixie"
+  tags:
+    - host_test
+
+pytest-win32:
+  stage: test
+  needs:
+    - job: pytest-linux
+      artifacts: false
+  before_script:
+    - pymanager exec -V:$env:PYTHON_VER -m venv venv
+    - 'venv\Scripts\Activate.ps1'
+    - python -V
+    - pip install '.[test]'
+  script:
+    # - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term --cov-report xml:reports/coverage.xml
+    - $env:COVERAGE_FILE = ".coverage.$env:CI_JOB_ID"
+    - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term
+  # coverage: '/TOTAL.*\s+(\d+)\%/'
+  artifacts:
+    paths:
+      # - reports/
+      - '.coverage*'
+    reports:
+      junit: reports/junit.xml
+    expire_in: 2 days
+  parallel:
+    matrix:
+      - PYTHON_VER: "3.7"
+      - PYTHON_VER: "3.11"
+      - PYTHON_VER: "3.14"
+  tags:
+    - windows
+    - pymanager
+
+pytest-coverage:
+  stage: test
+  needs:
+    - job: pytest-linux
+      artifacts: true
+    - job: pytest-win32
+      artifacts: false # Do not merge coverage from win32
+  before_script:
+    - pip install coverage
+  script:
+    - coverage combine .coverage*
+    - coverage report
+    - coverage xml
+    - coverage html
+  coverage: '/TOTAL.*\s+(\d+)\%/'
+  artifacts:
+    paths:
+      - htmlcov/
+      - '.coverage'
+      - coverage.xml
+    # reports:
+    #   coverage: 'coverage.xml'
+    expire_in: 1 week
   tags:
     - host_test
 

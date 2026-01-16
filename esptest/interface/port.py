@@ -1,10 +1,11 @@
 import re
-import typing as t
 from abc import ABC, abstractmethod
 from typing import overload
 
-PatternLike = t.Union[str, bytes, re.Pattern[str], re.Pattern[bytes]]
-MatchLike = t.Union[re.Match[str], re.Match[bytes], None]
+import esptest.common.compat_typing as t
+
+PatternLike = t.Union[str, bytes, 're.Pattern[str]', 're.Pattern[bytes]']
+MatchLike = t.Union['re.Match[str]', 're.Match[bytes]', None]
 
 
 class PortInterface(ABC):
@@ -31,9 +32,9 @@ class PortInterface(ABC):
     @overload
     def expect(self, pattern: bytes, timeout: float = 30) -> None: ...
     @overload
-    def expect(self, pattern: re.Pattern[str], timeout: float = 30) -> re.Match[str]: ...
+    def expect(self, pattern: 're.Pattern[str]', timeout: float = 30) -> 're.Match[str]': ...
     @overload
-    def expect(self, pattern: re.Pattern[bytes], timeout: float = 30) -> re.Match[bytes]: ...
+    def expect(self, pattern: 're.Pattern[bytes]', timeout: float = 30) -> 're.Match[bytes]': ...
 
     @abstractmethod
     def expect(self, pattern: PatternLike, timeout: float = 0) -> MatchLike: ...  # type: ignore
