@@ -38,6 +38,7 @@ pytest-linux:
     - pip install -e '.[test]'
   script:
     # - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term --cov-report xml:reports/coverage.xml
+    - if [ "$IMG" = "python:3.11-bookworm" ]; then pip install pyecharts; fi  # test with pyecharts installed
     - export COVERAGE_FILE=.coverage.${CI_JOB_ID}
     - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term
   # coverage: '/TOTAL.*\s+(\d+)\%/'
