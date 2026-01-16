@@ -97,6 +97,14 @@ class SDKConfig(t.Dict[str, t.Any]):
             logger.warning('SECURE_FLASH_ENC_ENABLED not found in sdkconfig')
         return bool(self.get('SECURE_FLASH_ENC_ENABLED', False))
 
+    @property
+    def secure_boot_config(self) -> bool:
+        """Get secure boot status from SDK config"""
+        assert self, 'SDKConfig is not initialized'
+        if 'SECURE_BOOT' not in self:
+            logger.warning('SECURE_BOOT not found in sdkconfig')
+        return bool(self.get('SECURE_BOOT', False))
+
 
 @dataclass
 class PartitionInfo:
