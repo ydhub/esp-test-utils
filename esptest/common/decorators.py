@@ -16,6 +16,18 @@ GenericFunc = t.TypeVar('GenericFunc', bound=t.Callable[..., t.Any])
 
 
 def enhance_import_error_message(message: str) -> t.Callable[[GenericFunc], GenericFunc]:
+    """Decorator that enriches ImportError with function name and custom message.
+
+    When the decorated function raises an ImportError, the exception message
+    is appended with `` from {func.__name__}: {message}`` to aid fixing.
+
+    Args:
+        message (str): Extra hint to append to the ImportError message.
+
+    Returns:
+        t.Callable[[GenericFunc], GenericFunc]: A decorator for the target function.
+    """
+
     def decorator(func: GenericFunc) -> GenericFunc:
         @wraps(func)
         def wrapper(*args: t.Any, **kwargs: t.Any) -> t.Any:
@@ -42,17 +54,26 @@ def retry(
 ) -> t.Callable[[GenericFunc], GenericFunc]:
     """Retry decorator
 
-    For parameter "on_result", it can be a list or a callable.
+    The decorated function is called at most ``max_retry`` times. A retry happens when:
+    - The return value fails the ``on_result`` check (if configured), or
+    - An exception matching ``on_exception`` is raised (if configured).
 
+    **on_result** controls retry based on return value. It can be:
+    - **list**: Retry when the return value is **not** in the list; stop and return when it is in the list.
+    - **callable**: Retry when the callable returns True (result unacceptable); stop and return when it returns False.
+    Default is a callable that always returns False, so no retry based on result.
+
+    **on_exception** limits which exceptions trigger a retry. Only exceptions whose type is in this tuple
+    are caught and cause a retry; others are re-raised. Default uses an internal sentinel so no retry on exception.
 
     Args:
-        max_retry (int, optional): Max retry count. Defaults to 3.
-        on_result (Union[List[t.Any], Callable[[Any], bool]], optional): Retry if the result if not expected.
-        on_exception (Tuple[Type[Exception], ...], optional): Retry if exception, do not handle exception by default.
-        delay (float, optional): Delay before next retry. Defaults to 0.
+        max_retry: Maximum number of total calls. Defaults to 3.
+        on_result: Retry based on return value, see description above. Default: no retry on result.
+        on_exception: Retry when one of these exceptions is raised. Default: no exception handled.
+        delay: Delay before next retry. Defaults to 0.
 
     Returns:
-        t.Callable[[GenericFunc], GenericFunc]: decorator
+        t.Callable[[GenericFunc], GenericFunc]: A decorator for the target function.
     """
 
     def decorator(func: GenericFunc) -> GenericFunc:
@@ -98,12 +119,13 @@ def deprecated(reason: str = '') -> t.Callable[[GenericFunc], GenericFunc]:
 
 
 def suppress_stdout() -> t.Callable[[GenericFunc], GenericFunc]:
-    """Disable all stdout and stderr"""
+    """Redirect stdout and stderr to discard output during the decorated function's execution."""
 
     def decorator(func: GenericFunc) -> GenericFunc:
         @wraps(func)
         def wrapper(*args: t.Any, **kwargs: t.Any) -> t.Any:
-            with contextlib.redirect_stdout(io.StringIO()):
+            devnull = io.StringIO()
+            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
                 return func(*args, **kwargs)
 
         return t.cast(GenericFunc, wrapper)
@@ -115,7 +137,18 @@ def timeit(
     print_func: t.Callable[[str], None] = logger.critical,
     format_str: str = 'Func {func_name} time used: {time_used:.2f} s',
 ) -> t.Callable[[GenericFunc], GenericFunc]:
-    """Show time used when method is called"""
+    """Show time used after method is called.
+
+    After the function returns, ``print_func`` is called with the formatted string
+    (supports ``{func_name}`` and ``{time_used}`` placeholders).
+
+    Args:
+        print_func callable[[str], None]: Callable to output the timing message. Defaults to logger.critical.
+        format_str str: Format string for the message. Defaults to 'Func {func_name} time used: {time_used:.2f} s'.
+
+    Returns:
+        t.Callable[[GenericFunc], GenericFunc]: A decorator for the target function.
+    """
 
     def decorator(func: GenericFunc) -> GenericFunc:
         @wraps(func)
