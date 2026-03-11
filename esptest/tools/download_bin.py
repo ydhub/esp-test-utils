@@ -133,6 +133,7 @@ class DownBinTool:
                     chip='auto',
                 )
                 if not esp.IS_STUB:  # type: ignore
+                    logger.debug(f'Add --no-stub for device: {self.port}')
                     args += ['--no-stub'] if '--no-stub' not in args else []
             args += ['-p', self.port]
             args += ['-b', f'{baud}']
@@ -143,6 +144,7 @@ class DownBinTool:
             # get return code rather than check
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
             if ret.returncode == 0:
+                logger.debug(f'Download success: [{self.port}@{baud}]')
                 return  # succeed
             # failed
             download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
