@@ -29,7 +29,8 @@ def main() -> None:
 
     log_level = [logging.WARNING, logging.INFO, logging.DEBUG]
     logging.basicConfig(
-        level=log_level[min(args.verbose, len(log_level) - 1)], format='%(asctime)s %(levelname)s %(message)s'
+        level=log_level[min(args.verbose, len(log_level) - 1)],
+        format='%(asctime)s %(levelname)s %(module)s :: %(message)s',
     )
 
     bin_path = args.bin_path or './build'
