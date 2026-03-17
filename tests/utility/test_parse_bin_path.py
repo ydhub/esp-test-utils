@@ -2,6 +2,7 @@ import os
 import shutil
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -133,6 +134,36 @@ def test_parse_bin_gen_part(test_bin_path: Path) -> None:
     assert partition_file.is_file()
     assert len(partitions) == 6
     assert set([p.name for p in partitions]) == set(['nvs', 'phy_init', 'factory', 'wpa2_cer', 'wpa2_key', 'wpa2_ca'])
+
+
+def test_parse_partitions_when_partition_table_dir_read_only(test_bin_path: Path) -> None:
+    """When partition_table dir is read-only, csv is generated in a tmp path and parse_partitions still works.
+    Use mock for os.access instead of real chmod so the test works in CI/Docker and on any filesystem.
+    """
+    part_dir = test_bin_path / 'partition_table'
+    partition_csv = part_dir / 'partition-table.csv'
+    partition_bin = part_dir / 'partition-table.bin'
+    assert partition_bin.is_file(), 'test data must have partition-table.bin'
+    os.remove(str(partition_csv))
+    assert not partition_csv.is_file()
+
+    real_access = os.access
+
+    def fake_access(path: Path, mode: int) -> bool:
+        if Path(path).resolve() == part_dir.resolve() and mode == os.W_OK:
+            return False
+        return real_access(path, mode)
+
+    # Patch os.access where it is used (global os module) to avoid AttributeError
+    # when 'esptest.utility' is not visible in the test environment.
+    with patch('os.access', side_effect=fake_access):
+        parser = ParseBinPath(test_bin_path)
+        partitions = parser.parse_partitions()
+
+    assert not partition_csv.is_file()  # csv file should not be created to read-only dir
+    assert len(partitions) == 6
+    assert set(p.name for p in partitions) == {'nvs', 'phy_init', 'factory', 'wpa2_cer', 'wpa2_key', 'wpa2_ca'}
+    assert parser.partition_table_csv_path  # attribute should be set
 
 
 def test_bin_path_to_dir() -> None:

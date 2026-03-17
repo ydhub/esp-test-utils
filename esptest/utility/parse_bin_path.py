@@ -131,6 +131,7 @@ class ParseBinPath:
         self._parttool = parttool
         self._flasher_args: t.Dict[str, t.Any] = {}
         self._sdkconfig: SDKConfig = SDKConfig()
+        self._partition_table_csv_path: str = ''  # set when partition_table dir is read-only
 
     @property
     def sdkconfig(self) -> SDKConfig:
@@ -192,21 +193,39 @@ class ParseBinPath:
         """Check if esptool stub is used"""
         return bool(self.flasher_args['extra_esptool_args'].get('stub', False))
 
-    def _gen_partition_table(self) -> None:
+    @property
+    def partition_table_csv_path(self) -> Path:
+        """Get partition-table.csv path"""
+        if self._partition_table_csv_path:
+            return Path(self._partition_table_csv_path)
+        return Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
+
+    def _gen_partition_table(self, part_csv: t.Optional[Path] = None) -> None:
         part_csv = Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
         part_bin = Path(self.bin_path) / 'partition_table' / 'partition-table.bin'
-        if self.parttool_path and not part_csv.is_file() and part_bin.is_file():
-            try:
-                _cmd = ['python', self.parttool_path, str(part_bin), str(part_csv)]
-                subprocess.check_call(_cmd, shell=False)
-            except subprocess.SubprocessError as e:
-                logger.error(f'Failed to gen partition-table.csv: {str(e)}')
+        if part_csv.is_file():
+            # already exists
+            return
+        if not self.parttool_path or not part_bin.is_file():
+            logger.error('Can not gen partition-table.csv: parttool_path or partition-table.bin not found')
+            return
+        if not os.access(part_csv.parent, os.W_OK):
+            # partition_table dir is read-only, use tmp dir for .csv
+            part_csv = Path(tempfile.mktemp(suffix='.csv'))
+            self._partition_table_csv_path = str(part_csv)
+        logger.debug(f'Generating partition-table.csv to {part_csv}')
+        try:
+            _cmd = ['python', self.parttool_path, str(part_bin), str(part_csv)]
+            subprocess.check_call(_cmd, shell=False)
+        except subprocess.SubprocessError as e:
+            logger.error(f'Failed to gen partition-table.csv: {str(e)}')
+            raise e
 
     @lru_cache()
     def parse_partitions(self) -> t.List[PartitionInfo]:
         """Parse partitions from partition-table.csv"""
         self._gen_partition_table()
-        partition_table_file = Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
+        partition_table_file = self.partition_table_csv_path
         if not partition_table_file.is_file():
             raise ValueError('Can not parse partition table')
         # # Name, Type, SubType, Offset, Size, Flags
