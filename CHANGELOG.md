@@ -1,3 +1,11 @@
+## v0.3.2 (2026-03-19)
+
+
+- feat: add downbin with configs
+- feat: add secure boot match check
+- fix: parse partition for read-only dir
+- change: add debug logs for downbin
+
 ## v0.3.1 (2026-01-16)
 
 
