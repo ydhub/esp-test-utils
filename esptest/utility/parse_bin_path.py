@@ -306,17 +306,40 @@ class ParseBinPath:
         args += ['erase_flash']
         return args
 
-    def flash_bin_args(self, baudrate: int = 0, erase_nvs: bool = True, encrypted: bool = False) -> t.List[str]:
+    def _check_secure_boot_match(self, secure_boot: bool) -> None:
+        if secure_boot != self.sdkconfig.secure_boot_config:
+            msg = (
+                f'Secure Boot status mismatch! '
+                f'SDKConfig.secure_boot={self.sdkconfig.secure_boot_config}, '
+                f'efuse secure_boot_enabled={secure_boot}. '
+                f'Refusing to flash bin.'
+            )
+            raise RuntimeError(msg)
+
+    def flash_bin_args(
+        self,
+        baudrate: int = 0,
+        erase_nvs: bool = True,
+        encrypted: bool = False,
+        secure_boot: bool = False,
+    ) -> t.List[str]:
         """Get write_flash args / command for esptool.
 
         Args:
             baudrate (int, optional): baudrate for flashing.
             erase_nvs (bool, optional): whether to erase nvs partition.
             encrypted (bool, optional): whether to flash with encryption.
+            secure_boot (bool, optional): whether to flash with secure boot.
         """
         args = self._write_flash_args_common(baudrate)
         if encrypted:
             args += ['--encrypt']
+        if secure_boot:
+            # Secure Boot blocks writes to protected regions without --force
+            # Can't use idf.py flash, can use python -m esptool command in build_log
+            args += ['--force']
+        # always check secure boot match because efuse will be auto-flashed before idf v6.1 if secure boot is enabled
+        self._check_secure_boot_match(secure_boot)
         for offset, bin_file in self.flasher_args['flash_files'].items():
             args += [offset, str(Path(self.bin_path) / bin_file)]
         if erase_nvs:

@@ -19,6 +19,8 @@ from esptest.tools.http_download import download_file
 from esptest.utility.parse_bin_path import ParseBinPath
 
 logger = get_logger('download_bin')
+FLASH_CRYPT_CNT_PATTERN = re.compile(r'(?:FLASH_CRYPT_CNT|SPI_BOOT_CRYPT_CNT).*\(0b([01]+)')
+SECURE_BOOT_EN_PATTERN = re.compile(r'(?:ABS_DONE_1|SECURE_BOOT_EN).*?\((0b[01]+)\)')
 
 
 @lru_cache()
@@ -72,10 +74,25 @@ def _filter_esptool_log(log: str) -> str:
     return new_log
 
 
+def check_flash_encrypted(efuse_summary: str) -> bool:
+    """Check whether flash encryption is enabled from efuse summary."""
+    match = FLASH_CRYPT_CNT_PATTERN.search(efuse_summary)
+    if match:
+        return match.group(1).count('1') % 2 == 1
+    return False
+
+
+def check_secure_boot_enabled(efuse_summary: str) -> bool:
+    """Check whether secure boot is enabled from efuse summary."""
+    match = SECURE_BOOT_EN_PATTERN.search(efuse_summary)
+    if match:
+        return match.group(1) == '0b1'
+    return False
+
+
 class DownBinTool:
     # RETRY_CNT = 2
     DEFAULT_BAUD_LIST = [921600, 460800]
-    FLASH_CRYPT_CNT_PATTERN = re.compile(r'(?:FLASH_CRYPT_CNT|SPI_BOOT_CRYPT_CNT).*\(0b([01]+)')
 
     def __init__(
         self,
@@ -101,12 +118,6 @@ class DownBinTool:
         self.force_no_stub = force_no_stub
         self.check_no_stub = check_no_stub
 
-    def check_flash_encrypted(self, efuse_summary: str) -> bool:
-        match = self.FLASH_CRYPT_CNT_PATTERN.search(efuse_summary)
-        if match:
-            return match.group(1).count('1') % 2 == 1
-        return False
-
     def download(self) -> None:
         efuse_cmd = self.espefuse.split()
         try:
@@ -116,8 +127,8 @@ class DownBinTool:
         except subprocess.CalledProcessError as err:
             logger.error(err.output)
             raise RuntimeError(f'Failed to get efuse information from {self.port}') from err
-
-        enc_indicator = ' [encrypted]' if self.check_flash_encrypted(summary) else ''
+        encrypted_indicator = ' [encrypted]' if check_flash_encrypted(summary) else ''
+        secure_boot_indicator = ' [secure_boot]' if check_secure_boot_enabled(summary) else ''
 
         download_log = ''
         for baud in self.baud_list:
@@ -137,14 +148,16 @@ class DownBinTool:
                     args += ['--no-stub'] if '--no-stub' not in args else []
             args += ['-p', self.port]
             args += ['-b', f'{baud}']
-            args += self.bin_parser.flash_bin_args(erase_nvs=self.erase_nvs, encrypted=bool(enc_indicator))
+            args += self.bin_parser.flash_bin_args(
+                erase_nvs=self.erase_nvs, encrypted=bool(encrypted_indicator), secure_boot=bool(secure_boot_indicator)
+            )
 
-            logger.info(f'Downloading {self.port}@{baud}{enc_indicator}: {self.bin_path}')
+            logger.info(f'Downloading {self.port}@{baud}{encrypted_indicator}{secure_boot_indicator}: {self.bin_path}')
             logger.debug(f'esptool cmd: {" ".join(args)}')
             # get return code rather than check
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
             if ret.returncode == 0:
-                logger.debug(f'Download success: [{self.port}@{baud}]')
+                logger.info(f'Download success: [{self.port}@{baud}]')
                 return  # succeed
             # failed
             download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
