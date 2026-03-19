@@ -8,6 +8,7 @@ import sys
 import tempfile
 import zipfile
 from asyncio.events import AbstractEventLoop
+from dataclasses import dataclass
 from functools import lru_cache, partial
 
 from esptool import get_default_connected_device
@@ -208,3 +209,38 @@ def download_bin_to_ports(  # pylint: disable=too-many-positional-arguments
     check_no_stub: bool = False,
 ) -> None:
     asyncio.run(async_download_bin_scheduler(bin_path, ports, erase_nvs, max_workers, force_no_stub, check_no_stub))
+
+
+@dataclass
+class BinConfig:
+    bin_path: str
+    port: str
+    erase_nvs: bool = True
+    force_no_stub: bool = False
+    check_no_stub: bool = False
+
+
+async def async_downbin_scheduler(
+    bin_configs: t.List[BinConfig],
+    max_workers: int = 0,
+) -> None:
+    max_workers = max_workers or len(bin_configs)
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=max_workers))
+
+    coroutines = []
+    for cfg in bin_configs:
+        down_tool = DownBinTool(
+            cfg.bin_path,
+            cfg.port,
+            erase_nvs=cfg.erase_nvs,
+            force_no_stub=cfg.force_no_stub,
+            check_no_stub=cfg.check_no_stub,
+        )
+        coroutines.append(_async_download_bin(down_tool, loop))
+
+    await asyncio.gather(*coroutines)
+
+
+def download_bins(bin_configs: t.List[BinConfig], max_workers: int = 0) -> None:
+    asyncio.run(async_downbin_scheduler(bin_configs, max_workers))
