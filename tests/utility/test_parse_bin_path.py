@@ -169,6 +169,7 @@ def test_parse_partitions_when_partition_table_dir_read_only(test_bin_path: Path
 def test_bin_path_to_dir() -> None:
     bin_path = bin_path_to_dir(str(TEST_FILE_PATH / 'test-bin.zip'))
     parse_bin_path = ParseBinPath(bin_path)
+    assert Path(parse_bin_path.bin_path).parts[-1] == 'test-bin'
     assert parse_bin_path.chip == 'esp32c5'
 
 

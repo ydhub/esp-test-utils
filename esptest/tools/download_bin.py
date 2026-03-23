@@ -45,10 +45,10 @@ def bin_path_to_dir(bin_path: str) -> str:
         download_file(bin_path, new_bin_path)
         bin_path = new_bin_path
     if bin_path.endswith('.zip'):
-        if hasattr(bin_base_name, 'removeprefix'):
-            _bin_name = bin_base_name.removeprefix('.zip')
+        if hasattr(bin_base_name, 'removesuffix'):
+            _bin_name = bin_base_name.removesuffix('.zip')
         else:
-            # python < 3.9 does not support removeprefix
+            # python < 3.9 does not support removesuffix
             _bin_name = bin_base_name[:-4] if bin_base_name.endswith('.zip') else bin_base_name
         new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
         os.makedirs(new_bin_path, exist_ok=True)
