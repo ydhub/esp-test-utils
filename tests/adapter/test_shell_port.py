@@ -66,6 +66,7 @@ def test_shell_port_read_write() -> None:
         echo_cmd1 = 'echo hello'
         echo_cmd2 = 'timeout /t 1 /nobreak >nul & echo world'
     with ShellPort(cmd=shell_cmd, text=True) as port:
+        port.is_alive is True
         port.write_line(echo_cmd1, end='\r\n')
         time.sleep(0.2)  # wait for the receive thread
         assert 'hello' in port.read_all_data()
@@ -117,6 +118,25 @@ def test_pexpect_spawn_port_logfile(tmp_path: Path) -> None:
         time.sleep(0.1)  # wait for the receive thread
         with open(str(tmp_path / 'shell_port2.log'), 'r', encoding='utf-8', errors='ignore') as f:
             assert 'world' in f.read()
+
+
+def test_shell_port_is_alive() -> None:
+    port = ShellPort(cmd='echo hello_test')
+    time.sleep(0.5)
+    data = port.read_all_bytes()
+    data += port.read_all_bytes()
+    assert 'hello_test' in data.decode('utf-8')
+    assert port.is_alive is False
+
+
+def test_shell_raw_auto_close_on_process_exit() -> None:
+    raw_port = ShellRaw(cmd='echo done')
+    assert raw_port.proc is not None
+    time.sleep(0.5)
+    data = raw_port.read_bytes_nonblocking()
+    data += raw_port.read_bytes_nonblocking()
+    assert 'done' in data.decode('utf-8')
+    assert raw_port.proc is None, 'ShellRaw should auto-close after subprocess exits'
 
 
 if __name__ == '__main__':

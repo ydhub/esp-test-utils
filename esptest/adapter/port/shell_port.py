@@ -82,7 +82,8 @@ class ShellRaw(RawPort):
                     if data:
                         self._read_queue.put(data)
                     elif self.proc.poll() is not None:
-                        # Process has ended
+                        logger.info(f'shell command [{self.cmd}] was ended with code {self.proc.poll()}')
+                        self.close()
                         break
                 except (OSError, ValueError):
                     break
@@ -95,7 +96,10 @@ class ShellRaw(RawPort):
         if self._read_thread_stop:
             self._read_thread_stop.set()
         if self._read_thread:
-            self._read_thread.join(timeout=0.1)
+            try:
+                self._read_thread.join(timeout=0.1)
+            except RuntimeError:
+                pass
         if self.proc:
             if self.proc.pid:
                 try:
@@ -142,7 +146,11 @@ class ShellRaw(RawPort):
             return b''
         if sys.platform != 'win32':
             self.proc.stdout.flush()  # type: ignore
-            return self.proc.stdout.read(size)  # type: ignore
+            data = self.proc.stdout.read(size)  # type: ignore
+            if self.proc.poll() is not None:
+                logger.info(f'shell command [{self.cmd}] was ended with code {self.proc.poll()}')
+                self.close()
+            return data  # type: ignore
         # Windows: read from the queue
         try:
             if not self._read_queue:
@@ -181,6 +189,10 @@ class ShellPort(BasePort[ShellRaw]):
     ) -> None:
         raw_port = ShellRaw(cmd=cmd, env=env)
         super().__init__(raw_port, name, log_file, **kwargs)
+
+    @property
+    def is_alive(self) -> bool:
+        return self.raw_port.proc is not None
 
 
 class InvalidRaw(RawPort):
