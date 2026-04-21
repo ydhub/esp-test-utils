@@ -1,3 +1,12 @@
+## v0.3.3 (2026-04-21)
+
+
+- feat: parser support expand list
+- feat: add index parser function
+- feat: add performance result
+- feat: shell_port support check is_alive
+- fix: unzip bin path tmp dir
+
 ## v0.3.2 (2026-03-19)
 
 
