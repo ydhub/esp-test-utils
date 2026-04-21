@@ -21,6 +21,7 @@ gl-codequality.json
 dut_logs/
 dut.log
 tests/utility/_files/test-bin
+performance_result.json
 
 
 # docs
