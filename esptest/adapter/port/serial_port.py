@@ -87,9 +87,9 @@ class SerialPortMixin(MixinBase):
         elif issubclass(original_type, SerialBase):
             raw_port.__class__ = serial_add_mixin(original_type)
 
-    def __init__(self, raw_port: t.Any, name: str, log_file: str = '') -> None:
+    def __init__(self, raw_port: t.Any, name: str, log_file: str = '', **kwargs: t.Any) -> None:
         self._add_mixin_by_type(raw_port)
-        super().__init__(raw_port, name, log_file)
+        super().__init__(raw_port, name, log_file, **kwargs)
         self._serial_config: t.Dict[str, t.Any] = {}
 
     def start_redirect_thread(self) -> None:

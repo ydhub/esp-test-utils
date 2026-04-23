@@ -16,7 +16,7 @@ import serial
 
 from esptest import dut_wrapper
 from esptest.adapter.dut import DutBase
-from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort
+from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort, g
 from esptest.adapter.port.serial_port import SerialExt
 from esptest.devices.serial_dut import SerialDut  # deprecated
 
@@ -188,6 +188,136 @@ class TestSerialDut(unittest.TestCase):
         # Check Total time, All expect should block no more than one seconds other than the failure one
         assert time.perf_counter() - t0 < 2
 
+    def test_serial_dut_expect_maxread(self) -> None:
+        t0 = time.perf_counter()
+        ser = serial.Serial(self.serial_port, 115200, timeout=0.001)
+        dut = SerialDut(ser, 'MyDut', maxread=1024)
+        assert dut.spawn is not None
+        assert dut.spawn.maxread == 1024
+        fd_master = os.fdopen(self.master, 'wb')
+        try:
+            # Test expect string success
+            fd_master.write(b'a' * 1024 + b'b' * 1024)
+            fd_master.flush()
+            time.sleep(0.1)
+            # Test expect string maxread
+            match1 = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0)
+            assert match1
+            assert match1.group(0) == 'a' * 1024
+            match2 = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0)
+            assert match2
+            assert match2.group(0) == 'b' * 1024
+            # Test expect string failure
+            with pytest.raises(Exception):
+                dut.expect('aaa', timeout=0.1)
+            # Test expect out of buffer
+            fd_master.write(b'a' * 1024 + b'b' * 1024)
+            fd_master.flush()
+            time.sleep(0.1)
+            # Known Issue: pexpect can fail due to buffer ``maxread`` limit when timeout is 0.
+            with pytest.raises(Exception):
+                dut.expect(re.compile(r'.+bbb', re.DOTALL), timeout=0)
+            data_cache = dut.data_cache
+            assert len(data_cache) == 2048
+            assert data_cache == 'a' * 1024 + 'b' * 1024  # data cache is str
+            # pexpect can return data
+            match3 = dut.expect(re.compile(r'.+?bbb', re.DOTALL), timeout=0.1)
+            assert match3
+            assert len(match3.group(0)) == 1024 + 3
+            assert match3.group(0) == 'a' * 1024 + 'bbb'
+            # Test read all data, not limited by buffer ``maxread``
+            dut.flush_data()
+            fd_master.write(b'a' * 2048 + b'b' * 2048)
+            fd_master.flush()
+            time.sleep(0.1)
+            bytes_cache = dut.read_all_bytes(flush=False)
+            assert len(bytes_cache) == 4096
+            bytes_cache = dut.read_all_bytes(flush=True)
+            assert len(bytes_cache) == 4096
+            bytes_cache = dut.read_all_bytes(flush=True)
+            assert len(bytes_cache) == 0
+            # Test expect out of buffer
+            fd_master.write(b'a' * 1024 + b'b' * 1024 + b'ccc')
+            fd_master.flush()
+            time.sleep(0.1)
+            # Test expect endl
+            match3 = dut.expect(re.compile(r'.+ccc', re.DOTALL), timeout=0.1)
+            assert match3
+            assert match3.group(0) == 'a' * 1024 + 'b' * 1024 + 'ccc'
+        finally:
+            dut.close()
+            self._close_file_io(fd_master)
+        # Check Total time, All expect should block no more than one seconds other than the failure one
+        assert time.perf_counter() - t0 < 2
+
+    def test_serial_dut_data_cache_trim_on_overflow(self) -> None:
+        """When the internal data cache grows beyond ``2 * DATA_CACHE_SIZE_LIMIT``,
+        the older half must be discarded, keeping only the most recent
+        ``DATA_CACHE_SIZE_LIMIT`` bytes.
+        """
+        ser_read_timeout = 0.003
+        ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
+        dut = SerialDut(ser, 'MyDut', maxread=1024)
+        fd_master = os.fdopen(self.master, 'wb')
+        original_limit = g.DATA_CACHE_SIZE_LIMIT
+        try:
+            # Shrink the cache limit so we can trigger the trim path deterministically.
+            g.DATA_CACHE_SIZE_LIMIT = 2 * 1024
+            # Write more than 2x the limit: head (older) + marker + tail (newer)
+            head = b'H' * (1 * 1024)
+            marker = b'MARKER'
+            tail = b'T' * (6 * 1024)
+            fd_master.write(head + marker + tail)
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 5)
+            # Trigger read_nonblocking so the trim branch in PortSpawn runs
+            assert dut.spawn is not None
+            dut.spawn.read_nonblocking(size=1, timeout=0)  # trigger data cache trim
+            # After trim, data cache should be <= DATA_CACHE_SIZE_LIMIT
+            assert len(dut.spawn._data_cache) <= 2 * g.DATA_CACHE_SIZE_LIMIT  # pylint: disable=protected-access
+            # The oldest bytes must be gone, the newest bytes must remain
+            assert dut.spawn._data_cache.endswith(b'T' * 64)  # pylint: disable=protected-access
+            assert b'H' * 64 not in dut.spawn._data_cache  # pylint: disable=protected-access
+            dut.flush_data()
+            assert dut.spawn._data_cache == b''
+            # Test via expect()
+            data = b'a' * 2048 + b'b' * 2048 + b'c' * 1024
+            fd_master.write(data)
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 5)
+            match = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0.1)
+            assert match
+            assert len(match.group(0)) == 1024  # due to matched and maxread
+            assert match.group(0) == 'b' * 1024
+            match2 = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0.1)
+            assert match2
+            assert match2.group(0) == 'c' * 1024  # data_cache cleared at the first time
+            dut.flush_data()
+            # Test via expect() not match
+            data = b'a' * 2048 + b'b' * 2048 + b'c' * 1024
+            fd_master.write(data)
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 3)
+            # assert dut.data_cache == 'b' * 1024 + 'c' * 1024
+            with pytest.raises(Exception):
+                # data cache was cleaned, left b*1024 and c*1024 in pexpect buffer
+                dut.expect(re.compile(r'.+aaa', re.DOTALL), timeout=0.1)
+            assert len(dut.spawn._data_cache) == 0  # p expect read all data
+            assert dut.data_cache == 'b' * 1024 + 'c' * 1024
+            # 'b'*1024 in pexpect buffer, c*1024 in port data cache
+            data = b'd' * (6 * 1024)  # could trigger data cache trim again
+            fd_master.write(data)
+            fd_master.write(data)
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 3)
+            data_cache = dut.data_cache
+            assert data_cache == 'b' * 1024 + 'c' * 1024 + 'd' * 2048
+
+        finally:
+            g.DATA_CACHE_SIZE_LIMIT = original_limit
+            dut.close()
+            self._close_file_io(fd_master)
+
     def test_serial_dut_data_cache(self) -> None:
         ser_read_timeout = 0.003
         ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
@@ -217,8 +347,18 @@ class TestSerialDut(unittest.TestCase):
             time.sleep(ser_read_timeout * 2)
             bytes_cache = dut.read_all_bytes(flush=False)
             assert bytes_cache == b'ccc'
-            bytes_cache = dut.read_all_bytes(flush=False)
+            bytes_cache = dut.read_all_bytes(flush=True)
             assert bytes_cache == b'ccc'
+            # Test read all bytes very long data
+            fd_master.write(b'a' * 1000 * 1000)
+            fd_master.flush()
+            time.sleep(ser_read_timeout * 2)
+            bytes_cache = dut.read_all_bytes(flush=False)
+            assert len(bytes_cache) == 1000 * 1000
+            bytes_cache = dut.read_all_bytes(flush=True)
+            assert len(bytes_cache) == 1000 * 1000
+            bytes_cache = dut.read_all_bytes(flush=True)
+            assert bytes_cache == b''
         finally:
             dut.close()
             self._close_file_io(fd_master)
