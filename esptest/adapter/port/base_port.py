@@ -15,6 +15,7 @@ import esptest.common.compat_typing as t
 
 from ...common import timestamp_str, to_bytes, to_str
 from ...common.decorators import deprecated
+from ...config.global_config import g
 from ...interface.port import PortInterface
 from ...logger import get_logger
 
@@ -32,6 +33,7 @@ else:
 
 logger = get_logger('port')
 NEVER_MATCHED_MAGIC_STRING = 'o6K,Q.(w+~yr~N9R'
+PEXPECT_DEFAULT_TIMEOUT = g.PORT_EXPECT_TIMEOUT
 
 
 class ExpectTimeout(TimeoutError):
@@ -80,7 +82,7 @@ T = t.TypeVar('T', bound=RawPort)
 @dataclass
 class SpawnConfig:
     name: str = ''  # mandatory
-    timeout: float = 30.0
+    timeout: float = PEXPECT_DEFAULT_TIMEOUT
     read_interval: float = 0
     # save rx log to log file
     log_file: t.Optional[str] = None
@@ -110,7 +112,7 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         raw_port: T,
         name: str = '',
         log_file: t.Optional[str] = None,
-        timeout: float = 30,
+        timeout: float = PEXPECT_DEFAULT_TIMEOUT,
         **kwargs: t.Any,
     ) -> None:
         """PortSpawn for pexpect
@@ -123,6 +125,7 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         """
         super().__init__(timeout=timeout)
         assert isinstance(raw_port, RawPort)
+        self.maxread = kwargs.get('maxread', g.PORT_SPAWN_MAXREAD)
         self.name = name
         self._raw_port = raw_port
         if not self.name and hasattr(self.raw_port, 'name'):
@@ -254,6 +257,9 @@ class PortSpawn(SpawnBase, t.Generic[T]):
             except queue.Empty:
                 break
             time_left = t0 + timeout - time.time()
+        # clear older data cache if it is larger than 2x limit
+        if len(self._data_cache) >= g.DATA_CACHE_SIZE_LIMIT * 2:
+            self._data_cache = self._data_cache[-g.DATA_CACHE_SIZE_LIMIT :]
         # Returned data should not more than given size.
         if self._data_cache:
             ret_data = self._data_cache[:size]
@@ -313,7 +319,6 @@ class BasePort(PortInterface, t.Generic[T]):
         ExceptionPexpect,
     )
     INIT_START_REDIRECT_THREAD: bool = True
-    PEXPECT_DEFAULT_TIMEOUT: float = 30
 
     def __init__(
         self,
@@ -332,7 +337,7 @@ class BasePort(PortInterface, t.Generic[T]):
             self._close_redirect_thread_when_exit = kwargs['close_redirect_thread_when_exit']
         # redirect thread (pexpect spawn)
         self.expect_timeout_exceptions = self.EXPECT_TIMEOUT_EXCEPTIONS
-        self.timeout = self.PEXPECT_DEFAULT_TIMEOUT
+        self.timeout = kwargs.get('timeout', PEXPECT_DEFAULT_TIMEOUT)
         self._pexpect_spawn: t.Optional[PortSpawn] = None
         # logger
         self._logger = self._get_logger()
@@ -419,7 +424,7 @@ class BasePort(PortInterface, t.Generic[T]):
             return
         self._init_log_file()
         self._pexpect_spawn = PortSpawn(
-            self.raw_port, self.name, self.log_file, self.PEXPECT_DEFAULT_TIMEOUT, **self._kwargs
+            self.raw_port, self.name, self.log_file, PEXPECT_DEFAULT_TIMEOUT, **self._kwargs
         )
 
     def stop_redirect_thread(self) -> bool:
@@ -455,13 +460,13 @@ class BasePort(PortInterface, t.Generic[T]):
         raise NotImplementedError()
 
     @overload
-    def expect(self, pattern: str, timeout: float = 30) -> None: ...
+    def expect(self, pattern: str, timeout: float = PEXPECT_DEFAULT_TIMEOUT) -> None: ...
     @overload
-    def expect(self, pattern: bytes, timeout: float = 30) -> None: ...
+    def expect(self, pattern: bytes, timeout: float = PEXPECT_DEFAULT_TIMEOUT) -> None: ...
     @overload
-    def expect(self, pattern: 're.Pattern[str]', timeout: float = 30) -> 're.Match[str]': ...
+    def expect(self, pattern: 're.Pattern[str]', timeout: float = PEXPECT_DEFAULT_TIMEOUT) -> 're.Match[str]': ...
     @overload
-    def expect(self, pattern: 're.Pattern[bytes]', timeout: float = 30) -> 're.Match[bytes]': ...
+    def expect(self, pattern: 're.Pattern[bytes]', timeout: float = PEXPECT_DEFAULT_TIMEOUT) -> 're.Match[bytes]': ...
 
     @handle_expect_timeout
     def expect(self, pattern, timeout=PEXPECT_DEFAULT_TIMEOUT):  # type: ignore
@@ -472,6 +477,12 @@ class BasePort(PortInterface, t.Generic[T]):
         If the pattern type is str or bytes, this method is similar to expect_exact(), but returning None.
         If the pattern type is re.Pattern, this method will return a re.Match object if the pattern is matched.
         Can read all output data by pattern=re.compile('.+', re.DOTALL)
+
+        Note:
+            When matching very long data in a single read, pexpect may truncate the buffer
+            due to its ``maxread`` limit. If the expected pattern can
+            span a large chunk of output, increase ``maxread`` on the underlying pexpect
+            spawn accordingly.
 
         Args:
             pattern (t.Union[str, bytes, re.Pattern]): pattern to match
@@ -518,18 +529,25 @@ class BasePort(PortInterface, t.Generic[T]):
         """
         buffer = b''
         if flush:
-            # pexpect may return empty bytes if b'(.*)' is used
-            try:
-                match = self.expect(re.compile(b'(.+)', re.DOTALL), timeout=0)
-                assert match
-                buffer = match.group(0)
-            except TimeoutError:
-                pass
+            while True:
+                new_data = b''
+                # pexpect may return empty bytes if b'(.*)' is used
+                try:
+                    match = self.expect(re.compile(b'(.+)', re.DOTALL), timeout=0)
+                    assert match
+                    new_data = match.group(0)
+                except TimeoutError:
+                    pass
+                if not new_data:
+                    break
+                buffer += new_data
         else:
-            # flush spawn buffer
+            # update spawn buffer
             assert self._pexpect_spawn
             self._pexpect_spawn.expect_exact(pexpect.TIMEOUT, timeout=0)
             buffer = to_bytes(self._pexpect_spawn.buffer)
+            if hasattr(self._pexpect_spawn, 'data_cache'):
+                buffer += to_bytes(self._pexpect_spawn.data_cache)
         assert isinstance(buffer, bytes)
         return buffer
 

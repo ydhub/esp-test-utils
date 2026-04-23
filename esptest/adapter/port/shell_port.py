@@ -11,6 +11,7 @@ import psutil
 import esptest.common.compat_typing as t
 
 from ...common.shell import ensure_windows_env
+from ...config.global_config import g
 from ...logger import get_logger
 from .base_port import BasePort, RawPort
 
@@ -270,7 +271,8 @@ class PexpectPort(BasePort[InvalidRaw]):
         self._init_log_file()
         env = os.environ.copy()
         env['PYTHONUNBUFFERED'] = 'true'  # for python scripts, disable output buffering
-        self._pexpect_spawn = pexpect.spawn(self._cmd, maxread=8192, echo=False, env=env)  # type: ignore
+        maxread = self._kwargs.get('maxread', g.PORT_SPAWN_MAXREAD)
+        self._pexpect_spawn = pexpect.spawn(self._cmd, maxread=maxread, echo=False, env=env)  # type: ignore
         self._pexpect_spawn.logfile = self.log_file_f  # type: ignore
         # self._pexpect_spawn.delaybeforesend = 0.001
 

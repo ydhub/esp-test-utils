@@ -105,6 +105,23 @@ def test_pexpect_spawn_port_read_write() -> None:
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
+def test_pexpect_spawn_port_maxread() -> None:
+    shell_cmd = '/bin/bash'
+    # default maxread comes from global_config
+    with PexpectPort(cmd=shell_cmd) as port:
+        assert port.spawn is not None
+        assert port.spawn.maxread == 10 * 1024  # g.PORT_SPAWN_MAXREAD default
+    # custom maxread via kwargs should be propagated to the underlying pexpect.spawn
+    with PexpectPort(cmd=shell_cmd, maxread=2048) as port:
+        assert port.spawn is not None
+        assert port.spawn.maxread == 2048
+        port.write_line('printf "%.0sa" {1..4096}; echo END')
+        # read until END is seen; must not raise due to maxread truncation
+        match = port.expect(re.compile(r'a{4096}END'), timeout=2)
+        assert match is not None
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
 def test_pexpect_spawn_port_logfile(tmp_path: Path) -> None:
     log_file = tmp_path / 'shell_port1.log'
     shell_cmd = '/bin/bash'
