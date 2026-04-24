@@ -19,10 +19,8 @@ def rst_reason_callback(matched_result: MatchedResult) -> None:
     logging.critical(f'RST reason: {matched_result.match.group(1)}')
 
 
-class MonitorChipVersion(DataMonitor):  # pylint: disable=super-init-not-called
-    pattern = r'Chip ID: ([\da-fA-F]+)'
-
-    def __init__(self) -> None:  # pylint: disable=super-init-not-called
+class MonitorChipVersion:
+    def __init__(self) -> None:
         self.monitor = DataMonitor(CHIP_VERSION_PATTERN, self.monitor_callback)
         self.matched_results: t.List[MatchedResult] = []
         self.version = ''

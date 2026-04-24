@@ -54,6 +54,9 @@ class DataMonitor:
         # self._matched_results = []
         # data cache
         self._data_cache: t.Dict[str, _DataCache] = {}
+        self._data_cache_lock = threading.Lock()
+        # shared matched states across ports
+        self._matched_lock = threading.Lock()
         # matched results
         self.matched_count = 0
         self.matched_ports: t.List[str] = []
@@ -103,18 +106,29 @@ class DataMonitor:
             return
         if timestamp == 0:
             timestamp = time.time()
-        if port_name not in self._data_cache:
-            self._data_cache[port_name] = _DataCache()
-        with self._data_cache[port_name].lock:
-            self._data_cache[port_name].data += to_str(data)
-            # check if pattern matched
-            matched, pos = self._check_pattern(self._data_cache[port_name].data, self._pattern)
-            if matched:
-                self.matched_count += 1
-                self.matched_ports.append(port_name)
+        with self._data_cache_lock:
+            data_cache = self._data_cache.get(port_name)
+            if data_cache is None:
+                data_cache = _DataCache()
+                self._data_cache[port_name] = data_cache
+
+        with data_cache.lock:
+            data_cache.data += to_str(data)
+            # consume all matches available in current accumulated cache
+            matched, pos = self._check_pattern(data_cache.data, self._pattern)
+            while matched:
                 matched_result = MatchedResult(self._key, port_name, matched, timestamp)
-                self.matched_results.append(matched_result)
+                with self._matched_lock:
+                    self.matched_count += 1
+                    self.matched_ports.append(port_name)
+                    self.matched_results.append(matched_result)
+                # trim data cache
+                before_trim_data = data_cache.data
+                if pos <= 0:
+                    pos = 1
+                data_cache.data = data_cache.data[pos:]
                 if self._callback:
                     self._callback(matched_result)
-                # trim data cache
-                self._data_cache[port_name].data = self._data_cache[port_name].data[pos:]
+                if data_cache.data == before_trim_data:
+                    break
+                matched, pos = self._check_pattern(data_cache.data, self._pattern)
