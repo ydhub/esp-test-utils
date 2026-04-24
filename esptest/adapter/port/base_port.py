@@ -127,13 +127,14 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         # Create a new thread to read data from serial port
         self._read_queue: queue.Queue = queue.Queue()
         self._read_thread_stop_event = threading.Event()
-        self._read_thread = threading.Thread(target=self._read_incoming, name=f'Spawn_{self.name}')
-        self._read_thread.daemon = True
-        self._read_thread.start()
         # callbacks
         self._rx_log_callback: t.Optional[t.Callable[[str, bytes], None]] = kwargs.get('rx_log_callback', None)
         # monitors
         self._monitors: t.Optional[t.List[DataMonitor]] = kwargs.get('monitors', None)
+        self._serial_error_reconnect_count_left = max(0, int(g.ALLOW_SERIAL_ERROR_RECONNECT_COUNT))
+        self._read_thread = threading.Thread(target=self._read_incoming, name=f'Spawn_{self.name}')
+        self._read_thread.daemon = True
+        self._read_thread.start()
 
     @property
     def receive_callback(self) -> t.Optional[t.Callable[[str, bytes], None]]:
@@ -190,6 +191,32 @@ class PortSpawn(SpawnBase, t.Generic[T]):
             else:
                 self.logger.debug(f'[{self.name}]: {to_str(data_to_write)}')
 
+    def _try_reconnect_after_error(self, err: Exception) -> bool:
+        if self._serial_error_reconnect_count_left <= 0:
+            return False
+        raw_port_close = getattr(self.raw_port, 'close', None)
+        raw_port_open = getattr(self.raw_port, 'open', None)
+        if not callable(raw_port_close) or not callable(raw_port_open):
+            self.logger.warning(f'Skip serial reconnect after serial error on {self.name}: raw port missing close/open')
+            return False
+        try:
+            self._serial_error_reconnect_count_left -= 1
+            raw_port_close()
+            # Keep a short gap to avoid immediate open/read race on some serial drivers.
+            time.sleep(0.1)
+            raw_port_open()
+            self.logger.warning(
+                f'{self.name} got serial error, reopened serial, '
+                f'reconnect_left={self._serial_error_reconnect_count_left}'
+            )
+            return True
+        except Exception as reconnect_err:  # pylint: disable=broad-except
+            self.logger.exception(
+                f'{self.name} failed to reconnect serial after error '
+                f'{type(err)}: {str(err)}, reconnect_error={type(reconnect_err)}: {str(reconnect_err)}'
+            )
+            return False
+
     def _read_incoming(self) -> None:
         """Running in a thread to read serial output and save to data cache."""
         self.logger.debug(f'Start serial {self.name} read thread.')
@@ -205,10 +232,15 @@ class PortSpawn(SpawnBase, t.Generic[T]):
                 # some port instances do not support changing read timeout, therefore use default timeout of the
                 new_data = self.raw_port.read_bytes(timeout=self.read_timeout)
             except Exception as e:  # pylint: disable=W0718
-                self._log(to_bytes(f'PortRead {type(e)}: {str(e)}'), 'read')
-                self._write_port_log(to_bytes(f'SerialException: {str(e)}'))
-                self.logger.exception(f'{self.name} reading thread stopped {type(e)}: {str(e)}')
-                return
+                self._log(to_bytes(f'PortReadError {type(e)}: {str(e)}'), 'read')
+                self.logger.exception(f'{self.name} port read error {type(e)}: {str(e)}')
+                time.sleep(0.01)  # avoid busy loop
+                if self._try_reconnect_after_error(e):
+                    self.logger.critical(f'{self.name} reconnected after error {type(e)}: {str(e)}')
+                    new_data = f'[PortException] reconnected after error {type(e)}: {str(e)}\n'.encode()
+                else:
+                    self._write_port_log(to_bytes(f'[PortException] {type(e)}: {str(e)}\n'))
+                    return
             if new_data:
                 self._read_queue.put(new_data)
                 if self._rx_log_callback:
