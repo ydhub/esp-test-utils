@@ -4,6 +4,8 @@ from typing import overload
 
 import esptest.common.compat_typing as t
 
+from ..common.data_monitor import DataMonitor
+
 PatternLike = t.Union[str, bytes, 're.Pattern[str]', 're.Pattern[bytes]']
 MatchLike = t.Union['re.Match[str]', 're.Match[bytes]', None]
 
@@ -20,6 +22,18 @@ class PortInterface(ABC):
     @name.setter
     @abstractmethod
     def name(self, value: str) -> None: ...
+
+    @abstractmethod
+    def set_rx_log_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None: ...
+
+    @abstractmethod
+    def add_monitor(self, monitor: DataMonitor) -> None: ...
+
+    @abstractmethod
+    def remove_monitor(self, monitor: DataMonitor) -> None: ...
+
+    @abstractmethod
+    def clear_monitors(self) -> None: ...
 
     @abstractmethod
     def write(self, data: t.AnyStr) -> None: ...

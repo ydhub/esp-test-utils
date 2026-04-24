@@ -8,16 +8,17 @@ import re
 import sys
 import threading
 import time
-from dataclasses import dataclass
 from typing import overload
 
 import esptest.common.compat_typing as t
 
 from ...common import timestamp_str, to_bytes, to_str
+from ...common.data_monitor import DataMonitor
 from ...common.decorators import deprecated
 from ...config.global_config import g
 from ...interface.port import PortInterface
 from ...logger import get_logger
+from .data_monitor_mixin import DataMonitorMixin
 
 if sys.platform == 'win32':
     import pexpect
@@ -79,21 +80,6 @@ class RawPort(metaclass=abc.ABCMeta):
 T = t.TypeVar('T', bound=RawPort)
 
 
-@dataclass
-class SpawnConfig:
-    name: str = ''  # mandatory
-    timeout: float = PEXPECT_DEFAULT_TIMEOUT
-    read_interval: float = 0
-    # save rx log to log file
-    log_file: t.Optional[str] = None
-    # using logger.info for logs
-    logger: logging.Logger = logger
-    # callback  cb(data,name)
-    tx_callbacks: t.Optional[t.List[t.Callable[[bytes, str], None]]] = None
-    rx_callbacks: t.Optional[t.List[t.Callable[[bytes, str], None]]] = None
-    # TODO: monitors
-
-
 class PortSpawn(SpawnBase, t.Generic[T]):
     """Create a new class for pexpect with port read()/write() method.
 
@@ -144,7 +130,19 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self._read_thread = threading.Thread(target=self._read_incoming, name=f'Spawn_{self.name}')
         self._read_thread.daemon = True
         self._read_thread.start()
-        self.receive_callback: t.Optional[t.Callable[[str, t.AnyStr], None]] = None
+        # callbacks
+        self._rx_log_callback: t.Optional[t.Callable[[str, bytes], None]] = kwargs.get('rx_log_callback', None)
+        # monitors
+        self._monitors: t.Optional[t.List[DataMonitor]] = kwargs.get('monitors', None)
+
+    @property
+    def receive_callback(self) -> t.Optional[t.Callable[[str, bytes], None]]:
+        return self._rx_log_callback
+
+    @receive_callback.setter
+    @deprecated('set receive_callback directly is deprecated, use rx_log_callback instead')
+    def receive_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
+        self._rx_log_callback = new_callback
 
     @property
     def raw_port(self) -> T:
@@ -213,9 +211,12 @@ class PortSpawn(SpawnBase, t.Generic[T]):
                 return
             if new_data:
                 self._read_queue.put(new_data)
-                if self.receive_callback and callable(self.receive_callback):
+                if self._rx_log_callback:
                     # https://stackoverflow.com/questions/69732212/pylint-self-xxx-is-not-callable
-                    self.receive_callback(self.name, new_data)  # pylint: disable=E1102
+                    self._rx_log_callback(self.name, new_data)  # pylint: disable=E1102
+                if self._monitors:
+                    for monitor in self._monitors:
+                        monitor.append_data(self.name, new_data)
             # the last line may be cached, to make the file more readable after adding timestamp
             # always check need write to file or not whether there's new data
             self._write_port_log(new_data)
@@ -280,7 +281,8 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self._read_thread_stop_event.set()
         self._read_thread.join()
         self._read_queue.empty()
-        self.receive_callback = None
+        self._rx_log_callback = None
+        self._monitors = []
         self._data_cache = b''
         self._line_cache = b''
 
@@ -306,7 +308,14 @@ def handle_expect_timeout(func: t.Callable) -> t.Callable:
     return wrap
 
 
-class BasePort(PortInterface, t.Generic[T]):
+class _BasePort(PortInterface):
+    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:  # pylint: disable=unused-argument
+        # kwargs are kept for BasePort creation and should not be forwarded
+        # to the end of MRO where object.__init__ rejects extra arguments.
+        super().__init__()
+
+
+class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=too-many-public-methods
     """A class to simply port methods for all devices / shell / sockets to similar usage
 
     - Create receive thread and pexpect spawn process for data read/expect
@@ -327,6 +336,7 @@ class BasePort(PortInterface, t.Generic[T]):
         log_file: str = '',
         **kwargs: t.Any,
     ) -> None:
+        super().__init__(**kwargs)
         self._raw_port = raw_port
         self._name = name
         self._log_file = log_file
@@ -412,6 +422,27 @@ class BasePort(PortInterface, t.Generic[T]):
         if self._pexpect_spawn:
             self._pexpect_spawn.log_file = new_log_file
         self._log_file = new_log_file
+
+    @property
+    def rx_log_callback(self) -> t.Optional[t.Callable[[str, bytes], None]]:
+        """Get Current dut log file."""
+        return t.cast(t.Optional[t.Callable[[str, bytes], None]], self._kwargs.get('rx_log_callback', None))
+
+    def set_rx_log_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
+        self._kwargs['rx_log_callback'] = new_callback
+        if self._pexpect_spawn:
+            self._pexpect_spawn._rx_log_callback = new_callback  # pylint: disable=protected-access
+
+    @property
+    def monitors(self) -> t.List[DataMonitor]:
+        return t.cast(t.List[DataMonitor], self._kwargs.setdefault('monitors', []))
+
+    @monitors.setter
+    def monitors(self, new_monitors: t.List[DataMonitor]) -> None:
+        synced_monitors = list(new_monitors)
+        self._kwargs['monitors'] = synced_monitors
+        if self._pexpect_spawn:
+            self._pexpect_spawn._monitors = synced_monitors  # pylint: disable=protected-access
 
     @property
     def spawn(self) -> t.Optional[PortSpawn]:

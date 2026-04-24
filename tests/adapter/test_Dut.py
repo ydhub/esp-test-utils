@@ -16,8 +16,12 @@ import serial
 
 from esptest import dut_wrapper
 from esptest.adapter.dut import DutBase
+from esptest.adapter.dut.create_dut import create_dut
+from esptest.adapter.dut.dut_base import DutConfig
 from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort, g
 from esptest.adapter.port.serial_port import SerialExt
+from esptest.adapter.port.shell_port import ShellRaw
+from esptest.common.data_monitor import DataMonitor
 from esptest.devices.serial_dut import SerialDut  # deprecated
 
 
@@ -44,6 +48,70 @@ def test_base_dut_isinstance() -> None:
     assert isinstance(my_port, RawPort)
     with dut_wrapper(my_port, 'MyDut') as dut:
         my_func(dut)
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
+def test_create_dut_with_monitor_in_dut_config() -> None:
+    monitor = DataMonitor('hello')
+    dut_config = DutConfig(
+        name='MyDut',
+        opened_port=ShellRaw(cmd='/bin/bash'),
+        monitors=[monitor],
+    )
+    dut: DutBase = create_dut(dut_config)
+    try:
+        assert dut._base_port_proxy is not None  # pylint: disable=protected-access
+        assert dut._base_port_proxy.spawn is not None  # pylint: disable=protected-access
+        assert dut._base_port_proxy.spawn._monitors == [monitor]  # pylint: disable=protected-access
+        dut.write_line('echo hello')
+        time.sleep(0.1)  # wait for redirect thread to consume output
+        # monitor should be matched even expect is not called
+        assert monitor.matched_count >= 1
+        assert monitor.matched_ports[-1] == dut.name
+    finally:
+        dut.close()
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
+def test_dut_add_remove_clear_monitor() -> None:
+    monitor_a = DataMonitor('hello')
+    monitor_b = DataMonitor('world')
+    dut_config = DutConfig(
+        name='MyDut',
+        opened_port=ShellRaw(cmd='/bin/bash'),
+    )
+    dut: DutBase = create_dut(dut_config)
+    try:
+        assert dut._base_port_proxy is not None  # pylint: disable=protected-access
+        assert dut._base_port_proxy.spawn is not None  # pylint: disable=protected-access
+        assert dut.monitors == []
+        assert dut._base_port_proxy.spawn._monitors is None  # pylint: disable=protected-access
+
+        dut.add_monitor(monitor_a)
+        assert dut.monitors == [monitor_a]
+        assert dut._base_port_proxy.spawn._monitors == [monitor_a]  # pylint: disable=protected-access
+
+        dut.add_monitor(monitor_a)
+        assert dut.monitors == [monitor_a]
+        assert dut._base_port_proxy.spawn._monitors == [monitor_a]  # pylint: disable=protected-access
+
+        dut.add_monitor(monitor_b)
+        assert dut.monitors == [monitor_a, monitor_b]
+        assert dut._base_port_proxy.spawn._monitors == [monitor_a, monitor_b]  # pylint: disable=protected-access
+
+        dut.remove_monitor(monitor_a)
+        assert dut.monitors == [monitor_b]
+        assert dut._base_port_proxy.spawn._monitors == [monitor_b]  # pylint: disable=protected-access
+
+        dut.remove_monitor(monitor_a)
+        assert dut.monitors == [monitor_b]
+        assert dut._base_port_proxy.spawn._monitors == [monitor_b]  # pylint: disable=protected-access
+
+        dut.clear_monitors()
+        assert dut.monitors == []
+        assert dut._base_port_proxy.spawn._monitors == []  # pylint: disable=protected-access
+    finally:
+        dut.close()
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Windows does not support pty')

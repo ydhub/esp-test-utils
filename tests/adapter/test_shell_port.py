@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from esptest.adapter.port.shell_port import PexpectPort, ShellPort, ShellRaw
+from esptest.common.data_monitor import DataMonitor
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='windows does not support ps')
@@ -146,6 +147,42 @@ def test_shell_port_is_alive() -> None:
     data += port.read_all_bytes()
     assert 'hello_test' in data.decode('utf-8')
     assert port.is_alive is False
+
+
+def test_shell_port_monitor_management() -> None:
+    shell_cmd = '/bin/bash' if sys.platform != 'win32' else 'cmd.exe'
+    with ShellPort(cmd=shell_cmd) as port:
+        monitor_a = DataMonitor('READY')
+        monitor_b = DataMonitor(re.compile(r'ID:\d+'))
+
+        assert port.monitors == []
+        assert port.spawn is not None
+
+        port.add_monitor(monitor_a)
+        assert port.monitors == [monitor_a]
+        assert port.spawn._monitors == [monitor_a]
+
+        # add duplicate should be no-op
+        port.add_monitor(monitor_a)
+        assert port.monitors == [monitor_a]
+        assert port.spawn._monitors == [monitor_a]
+
+        port.add_monitor(monitor_b)
+        assert port.monitors == [monitor_a, monitor_b]
+        assert port.spawn._monitors == [monitor_a, monitor_b]
+
+        port.remove_monitor(monitor_a)
+        assert port.monitors == [monitor_b]
+        assert port.spawn._monitors == [monitor_b]
+
+        # remove non-existing item should be no-op
+        port.remove_monitor(monitor_a)
+        assert port.monitors == [monitor_b]
+        assert port.spawn._monitors == [monitor_b]
+
+        port.clear_monitors()
+        assert port.monitors == []
+        assert port.spawn._monitors == []
 
 
 def test_shell_raw_auto_close_on_process_exit() -> None:
