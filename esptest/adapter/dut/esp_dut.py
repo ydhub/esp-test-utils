@@ -34,11 +34,15 @@ class EspDut(_DefaultMixins, DutBase):
         if _config.opened_port:
             if isinstance(_config.opened_port, BasePort):
                 _base_port = _config.opened_port
+                if self._kwargs.get('monitors') is not None:
+                    _base_port.monitors = self._kwargs['monitors']
+                if self._kwargs.get('rx_log_callback'):
+                    _base_port.set_rx_log_callback(self._kwargs['rx_log_callback'])
                 self._close_base_port_when_exit = False
                 self._close_raw_port_when_exit = False
                 return _base_port
             if isinstance(_config.opened_port, RawPort):
-                _base_port = BasePort(_config.opened_port, name=_config.name, log_file=_config.log_file)
+                _base_port = BasePort(_config.opened_port, name=_config.name, log_file=_config.log_file, **self._kwargs)
                 self._close_raw_port_when_exit = False
                 return _base_port
             raise TypeError(f'Can not create dut from {type(_config.opened_port)}')
@@ -51,10 +55,10 @@ class EspDut(_DefaultMixins, DutBase):
             _esp._port.timeout = _config.serial_read_timeout  # pylint: disable=protected-access
             _esp.hard_reset()
             self._raw_port = _esp
-            return BasePort(EspSerial(self._raw_port), name=_config.name, log_file=_config.log_file)
+            return BasePort(EspSerial(self._raw_port), name=_config.name, log_file=_config.log_file, **self._kwargs)
         # create basic serial port
         self._raw_port = SerialExt(port=_device, baudrate=_config.baudrate, **(_config.serial_configs or {}))
-        return SerialPort(self._raw_port, name=_config.name, log_file=_config.log_file)
+        return SerialPort(self._raw_port, name=_config.name, log_file=_config.log_file, **self._kwargs)
 
     def close(self) -> None:
         if self._close_base_port_when_exit:

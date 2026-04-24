@@ -11,12 +11,14 @@ from esptool.loader import ESPLoader
 
 import esptest.common.compat_typing as t
 
+from ...common.data_monitor import DataMonitor
 from ...common.timestamp import timestamp_slug
 from ...interface.dut import DutInterface
 from ...interface.port import PortInterface
 from ...logger import get_logger
 from ...utility.parse_bin_path import ParseBinPath, get_baud_from_bin_path
 from ..port.base_port import BasePort, RawPort
+from ..port.data_monitor_mixin import DataMonitorMixin
 from ..port.serial_port import SerialPort
 
 logger = get_logger('dut')
@@ -131,16 +133,30 @@ class VariablesMixin:
             self._dynamic_variables.pop(name)
 
 
-class DutBase(VariablesMixin, DutInterface):  # pylint: disable=too-many-public-methods
+class _DutBase(DutInterface):
+    def __init__(self, *args: t.Any, **_kwargs: t.Any) -> None:  # pylint: disable=unused-argument
+        # kwargs are kept for BasePort creation and should not be forwarded
+        # to the end of MRO where object.__init__ rejects extra arguments.
+        super().__init__()
+
+
+class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=too-many-public-methods
     """A base Dut class"""
 
     BASE_PORT_PROXY_METHODS = list(PortInterface.__abstractmethods__)
 
     def __init__(self, *, dut_config: DutConfig, **kwargs: t.Any) -> None:
+        # pass extra parameters to base port
+        self._kwargs = kwargs
+        if dut_config.monitors:
+            self._kwargs['monitors'] = dut_config.monitors
+        if dut_config.rx_log_callback:
+            self._kwargs['rx_log_callback'] = dut_config.rx_log_callback
+        # kwargs are kept for BasePort creation and should not be forwarded
+        # to the end of MRO where object.__init__ rejects extra arguments.
         super().__init__(**kwargs)
         # args and kwargs may be used by mixins
         self._dut_config: DutConfig = dut_config
-        self._kwargs = kwargs
         self._raw_port: t.Optional[RawPort] = None
         self._base_port_proxy: t.Optional[BasePort] = None
         self._dut_logger: logging.Logger = self._create_dut_logger()
@@ -234,6 +250,31 @@ class DutBase(VariablesMixin, DutInterface):  # pylint: disable=too-many-public-
         if self._base_port_proxy:
             return self._base_port_proxy.log_file
         return None
+
+    @property
+    def rx_log_callback(self) -> t.Optional[t.Callable[[str, bytes], None]]:
+        """Get Current dut log file."""
+        if self._base_port_proxy:
+            return self._base_port_proxy.rx_log_callback
+        return t.cast(t.Optional[t.Callable[[str, bytes], None]], self._kwargs.get('rx_log_callback', None))
+
+    def set_rx_log_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
+        self._kwargs['rx_log_callback'] = new_callback
+        if self._base_port_proxy:
+            self._base_port_proxy.set_rx_log_callback(new_callback)
+
+    @property
+    def monitors(self) -> t.List[DataMonitor]:
+        if self._base_port_proxy:
+            return self._base_port_proxy.monitors
+        return t.cast(t.List[DataMonitor], self._kwargs.setdefault('monitors', []))
+
+    @monitors.setter
+    def monitors(self, new_monitors: t.List[DataMonitor]) -> None:
+        synced_monitors = list(new_monitors)
+        self._kwargs['monitors'] = synced_monitors
+        if self._base_port_proxy:
+            self._base_port_proxy.monitors = synced_monitors
 
     @property
     def name(self) -> t.Any:
