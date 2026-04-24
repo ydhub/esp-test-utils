@@ -97,9 +97,11 @@ def test_pexpect_spawn_port_read_write() -> None:
     with PexpectPort(cmd=shell_cmd) as port:
         port.write_line('echo hello')
         time.sleep(0.5)  # wait for the receive thread
-        assert 'hello' in port.read_all_data()
+        data = port.read_all_data()
+        assert 'hello' in data
         port.write_line('sleep 0.1 && echo world')
-        assert 'world' not in port.read_all_data()
+        data = port.read_all_data()
+        assert 'world' not in data
         match = port.expect(re.compile('world'))
         assert match.group(0) == 'world'
 
@@ -124,7 +126,7 @@ def test_pexpect_spawn_port_maxread() -> None:
 @pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
 def test_pexpect_spawn_port_logfile(tmp_path: Path) -> None:
     log_file = tmp_path / 'shell_port1.log'
-    shell_cmd = '/bin/bash'
+    shell_cmd = '/bin/bash --noprofile --norc'
     with PexpectPort(cmd=shell_cmd, log_file=str(log_file)) as port:
         port.write_line('echo hello')
         time.sleep(0.5)  # wait for the receive thread
