@@ -1,3 +1,12 @@
+## v0.3.4 (2026-04-27)
+
+
+- fix: make serial read error reconnect configurable
+- fix: resolve data monitor review findings
+- feat: support add data monitor and callback to port
+- fix(port): propagate monitors and callbacks consistently
+- fix: pexpect buffer maxread limit and data cache overflow
+
 ## v0.3.3 (2026-04-21)
 
 
