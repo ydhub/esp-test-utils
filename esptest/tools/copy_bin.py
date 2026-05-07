@@ -25,6 +25,7 @@ class BuildFilesPatterns:
         'partition_table/*.bin',
         'partition_table/*.csv',
         'flasher_args.json',
+        'flash_args',
         'flash_project_args',
         'config/sdkconfig.json',
         'sdkconfig',
@@ -36,6 +37,9 @@ class BuildFilesPatterns:
         'bootloader/*.elf',
         '*.map',
         '*.elf',
+        'dependencies.lock',
+        'build_log.txt',
+        'size.json',
     ]
 
 
@@ -62,7 +66,7 @@ def copy_bin_to_new_path(
     to_path_obj = Path(to_path).resolve().absolute()
     assert from_path.is_dir()
     if force and to_path_obj.exists():
-        logger.debug(f'Removing existing destination directory or file {to_path_obj}')
+        logger.info(f'Removing existing destination directory or file {to_path_obj}')
         if to_path_obj.is_dir():
             shutil.rmtree(str(to_path_obj))
         else:
@@ -76,7 +80,7 @@ def copy_bin_to_new_path(
         to_dir.mkdir(parents=True, exist_ok=True)
     logger.debug(f'Copying bin files from {from_path} to {to_path_obj}')
 
-    all_patterns = BuildFilesPatterns.BIN_FILES
+    all_patterns = BuildFilesPatterns.BIN_FILES[:]
     if copy_elf:
         all_patterns.extend(BuildFilesPatterns.MAP_AND_ELF_FILES)
     if extra_files:
@@ -120,9 +124,39 @@ def main() -> None:
         action='store_true',
         help='zip destination, and to_path should end with .zip',
     )
+    parser.add_argument(
+        '--no-force',
+        dest='force',
+        action='store_false',
+        help='do not remove existing destination directory or file',
+    )
+    parser.set_defaults(force=True)
+    parser.add_argument(
+        '--no-copy-elf',
+        dest='copy_elf',
+        action='store_false',
+        help='do not copy elf/map files',
+    )
+    parser.set_defaults(copy_elf=True)
+    parser.add_argument(
+        '--extra-files',
+        metavar='PATTERN',
+        action='append',
+        nargs='+',
+        default=[],
+        help='extra glob patterns to copy, can be used multiple times',
+    )
     args = parser.parse_args()
+    extra_files = [pattern for item in args.extra_files for pattern in item] or None
 
-    copy_bin_to_new_path(args.from_dir, args.to_path, zip_output=args.zip)
+    copy_bin_to_new_path(
+        args.from_dir,
+        args.to_path,
+        zip_output=args.zip,
+        force=args.force,
+        copy_elf=args.copy_elf,
+        extra_files=extra_files,
+    )
 
 
 if __name__ == '__main__':
