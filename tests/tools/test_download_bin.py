@@ -1,7 +1,11 @@
+from pathlib import Path
 from unittest import mock
 
+import pytest
+
 import esptest.tools.download_bin as download_bin_module
-from esptest.tools.download_bin import BinConfig, download_bin_to_ports, download_bins
+from esptest.tools.download_bin import BinConfig, DownBinTool, download_bin_to_ports, download_bins
+from esptest.utility.parse_bin_path import bin_path_to_dir as bin_path_to_dir_canonical
 
 
 # 使用 patch.object(module, ...) 而非 patch('esptest.tools...')，避免 Py 3.7 下 esptest.tools 未加载时的 AttributeError
@@ -16,10 +20,20 @@ def test_download_bin_to_ports_calls_down_tool_per_port(
     download_bin_to_ports(bin_path, ports, erase_nvs=True, max_workers=2)
     assert mock_down_bin_tool.call_count == 2
     mock_down_bin_tool.assert_any_call(
-        bin_path, '/dev/ttyUSB0', erase_nvs=True, force_no_stub=False, check_no_stub=False
+        bin_path,
+        '/dev/ttyUSB0',
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
     )
     mock_down_bin_tool.assert_any_call(
-        bin_path, '/dev/ttyUSB1', erase_nvs=True, force_no_stub=False, check_no_stub=False
+        bin_path,
+        '/dev/ttyUSB1',
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
     )
     assert mock_down_bin_tool.return_value.download.call_count == 2
 
@@ -36,10 +50,20 @@ def test_download_bins_calls_down_tool_per_config(
     download_bins(configs, max_workers=2)
     assert mock_down_bin_tool.call_count == 2
     mock_down_bin_tool.assert_any_call(
-        '/path/to/bin1', '/dev/ttyUSB0', erase_nvs=True, force_no_stub=False, check_no_stub=False
+        '/path/to/bin1',
+        '/dev/ttyUSB0',
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
     )
     mock_down_bin_tool.assert_any_call(
-        '/path/to/bin2', '/dev/ttyUSB1', erase_nvs=False, force_no_stub=False, check_no_stub=False
+        '/path/to/bin2',
+        '/dev/ttyUSB1',
+        erase_nvs=False,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
     )
     assert mock_down_bin_tool.return_value.download.call_count == 2
 
@@ -57,7 +81,12 @@ def test_download_bins_default_max_workers(mock_down_bin_tool: mock.MagicMock) -
     configs = [BinConfig(bin_path='/bin/path', port='/dev/ttyUSB0')]
     download_bins(configs)
     mock_down_bin_tool.assert_called_once_with(
-        '/bin/path', '/dev/ttyUSB0', erase_nvs=True, force_no_stub=False, check_no_stub=False
+        '/bin/path',
+        '/dev/ttyUSB0',
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
     )
     mock_down_bin_tool.return_value.download.assert_called_once()
 
@@ -76,6 +105,90 @@ def test_download_bins_bin_config_options(mock_down_bin_tool: mock.MagicMock) ->
     ]
     download_bins(configs, max_workers=1)
     mock_down_bin_tool.assert_called_once_with(
-        '/path/bin', '/dev/ttyUSB0', erase_nvs=False, force_no_stub=True, check_no_stub=True
+        '/path/bin',
+        '/dev/ttyUSB0',
+        erase_nvs=False,
+        esptool='',
+        force_no_stub=True,
+        check_no_stub=True,
     )
     mock_down_bin_tool.return_value.download.assert_called_once()
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_success(mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path) -> None:
+    """download_partition 在 esptool 成功时应直接返回。"""
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    (bin_dir / 'flasher_args.json').write_text(
+        '{"write_flash_args": ["--flash_mode", "dio", "--flash_size", "2MB", "--flash_freq", "40m"], '
+        '"flash_files": {}, '
+        '"extra_esptool_args": {"chip": "esp32", "stub": true, '
+        '"before": "default_reset", "after": "hard_reset"}}',
+        encoding='utf-8',
+    )
+    (bin_dir / 'partition_table').mkdir()
+    (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
+    part_bin = tmp_path / 'nvs.bin'
+    part_bin.write_bytes(b'\xaa' * 128)
+
+    mock_completed = mock.MagicMock()
+    mock_completed.returncode = 0
+    mock_completed.stdout = ''
+    mock_completed.stderr = ''
+    mock_run.return_value = mock_completed
+
+    download_bin_module._get_bin_parser.cache_clear()
+    try:
+        tool = DownBinTool(str(bin_dir), '/dev/ttyUSB0', baud=115200, esptool='python -m esptool')
+        tool.download_partition({'nvs': str(part_bin)})
+    finally:
+        download_bin_module._get_bin_parser.cache_clear()
+
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert 'write_flash' in call_args
+    assert '/dev/ttyUSB0' in call_args
+    assert '115200' in call_args
+    assert str(part_bin) in call_args
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_failure_raises_runtime_error(
+    mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path
+) -> None:
+    """esptool 非零退出码时应抛出 RuntimeError（失败分支需正确拼接日志）。"""
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    (bin_dir / 'flasher_args.json').write_text(
+        '{"write_flash_args": ["--flash_mode", "dio", "--flash_size", "2MB", "--flash_freq", "40m"], '
+        '"flash_files": {}, '
+        '"extra_esptool_args": {"chip": "esp32", "stub": true, '
+        '"before": "default_reset", "after": "hard_reset"}}',
+        encoding='utf-8',
+    )
+    (bin_dir / 'partition_table').mkdir()
+    (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
+    part_bin = tmp_path / 'nvs.bin'
+    part_bin.write_bytes(b'\xaa' * 128)
+
+    mock_completed = mock.MagicMock()
+    mock_completed.returncode = 2
+    mock_completed.stdout = 'stub output\n'
+    mock_completed.stderr = 'err line\n'
+    mock_run.return_value = mock_completed
+
+    download_bin_module._get_bin_parser.cache_clear()
+    try:
+        tool = DownBinTool(str(bin_dir), '/dev/ttyUSB0', baud=115200, esptool='python -m esptool')
+        with pytest.raises(RuntimeError, match='Failed to download partitions'):
+            tool.download_partition({'nvs': str(part_bin)})
+    finally:
+        download_bin_module._get_bin_parser.cache_clear()
+
+
+def test_download_bin_reexports_bin_path_to_dir() -> None:
+    """download_bin 模块应继续暴露 bin_path_to_dir，且与 parse_bin_path 中实现为同一对象。"""
+    assert download_bin_module.bin_path_to_dir is bin_path_to_dir_canonical

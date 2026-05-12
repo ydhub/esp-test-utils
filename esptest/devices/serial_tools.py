@@ -49,8 +49,7 @@ def is_serial_port_in_use(port: str) -> bool:
     file). If ``fuser`` is unavailable, fails, or returns an unexpected exit
     code, falls back to ``lsof(8)`` (exit 0 means holders were found).
 
-    If neither tool is available or both fail, logs a warning and returns
-    ``False`` (occupancy unknown; callers may still open the port).
+    If neither tool is available or both fail, raise OSError (occupancy unknown; callers may still open the port).
     """
     device = compute_serial_port(port)
 
