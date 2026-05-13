@@ -232,6 +232,22 @@ def test_flash_partition_args_unknown_partition_raises(test_bin_path: Path, tmp_
         parse_bin_path.flash_partition_args({'no_such_part': str(dummy)})
 
 
+def test_dump_nvs_args(test_bin_path: Path, tmp_path: Path) -> None:
+    parse_bin_path = ParseBinPath(test_bin_path)
+    out = tmp_path / 'nvs_dump.bin'
+    args = parse_bin_path.dump_nvs_args(str(out))
+    assert args[:7] == [
+        '--chip',
+        'esp32c5',
+        '--before',
+        'default_reset',
+        '--after',
+        'hard_reset',
+        '--no-stub',
+    ]
+    assert args[7:11] == ['read_flash', '0x9000', str(24 * 1024), str(out)]
+
+
 if __name__ == '__main__':
     # Breakpoints do not work with coverage, disable coverage for debugging
     pytest.main([__file__, '--no-cov', '--log-cli-level=DEBUG'])
