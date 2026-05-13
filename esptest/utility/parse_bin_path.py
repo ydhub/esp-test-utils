@@ -3,15 +3,50 @@ import logging
 import os
 import subprocess
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 import esptest.common.compat_typing as t
 
+# pylint 在将 utility 视为顶层时判定“相对导入越级”，故禁用此检查
+from ..tools.http_download import download_file  # pylint: disable=relative-beyond-top-level
+
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
 DEFAULT_GEN_PART_TOOL = os.path.join(os.path.dirname(__file__), 'gen_esp32part.py')
+
+
+@lru_cache()
+def _tmp_dir() -> str:
+    return tempfile.mkdtemp()
+
+
+@lru_cache()
+def bin_path_to_dir(bin_path: str) -> str:
+    bin_hash = hash(bin_path)
+    bin_base_name = os.path.basename(bin_path)
+    if bin_path.startswith('http'):
+        assert bin_path.endswith('.zip')  # for now only support zip from url
+        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
+        os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
+        download_file(bin_path, new_bin_path)
+        bin_path = new_bin_path
+    if bin_path.endswith('.zip'):
+        if hasattr(bin_base_name, 'removesuffix'):
+            _bin_name = bin_base_name.removesuffix('.zip')
+        else:
+            # python < 3.9 does not support removesuffix
+            _bin_name = bin_base_name[:-4] if bin_base_name.endswith('.zip') else bin_base_name
+        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
+        os.makedirs(new_bin_path, exist_ok=True)
+        with zipfile.ZipFile(bin_path, 'r') as zip_ref:
+            zip_ref.extractall(new_bin_path)
+        bin_path = new_bin_path
+    if 'partition_table' not in os.listdir(bin_path):
+        logger.warning('Can not find partition_table from bin_path, maybe invalid!')
+    return bin_path
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
@@ -127,7 +162,9 @@ class ParseBinPath:
         parttool: str = '',
     ):
         self.bin_path = str(bin_path)
-        self._parttool = parttool
+        if not os.path.isdir(self.bin_path):
+            logger.warning(f'bin path {self.bin_path} is not a directory, trying to convert to directory')
+            self.bin_path = bin_path_to_dir(self.bin_path)
         self._parttool = parttool
         self._flasher_args: t.Dict[str, t.Any] = {}
         self._sdkconfig: SDKConfig = SDKConfig()
@@ -171,7 +208,8 @@ class ParseBinPath:
         try:
             with open(str(flasher_args_file), 'r', encoding='utf-8') as f:
                 _flasher_args = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(f'parse flasher_args.json failed: {flasher_args_file}, {type(e)}: {str(e)}')
             _flasher_args = {}
         return _flasher_args
 
@@ -358,8 +396,24 @@ class ParseBinPath:
             return args + list(self._gen_erase_nvs_bin())
         raise ValueError('Can not find nvs partition info')
 
+    def flash_partition_args(self, partition_bins: t.Dict[str, str]) -> t.List[str]:
+        """Get write_flash args for a partition"""
+        args = self._write_flash_args_common()
+        for partition_name, partition_bin in partition_bins.items():
+            part = self.get_partition_info(partition_name)
+            partition_offset = part.offset
+            if not partition_bin and partition_name == 'nvs':
+                logger.warning(f'No partition {partition_name} bin file provided, generating a empty one for erasing')
+                partition_bin = tempfile.mktemp()
+                with open(partition_bin, 'wb+') as f:
+                    f.write(b'\xff' * part.size)
+            if not partition_bin or not Path(partition_bin).is_file():
+                raise ValueError(f'Can not find or open partition bin file: {partition_bin}')
+            args += [partition_offset, partition_bin]
+        return args
+
     def get_partition_info(self, part_name: str) -> PartitionInfo:
         for part in self.parse_partitions():
             if part.name == part_name:
                 return part
-        raise ValueError('Can not find nvs partition info')
+        raise ValueError(f'Can not find {part_name} partition info')

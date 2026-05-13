@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from functools import lru_cache
 from typing import List
 
@@ -37,3 +39,44 @@ def compute_serial_port(port: str, strict: bool = False) -> str:
         raise serial.SerialException(f'Can not compute {port}')
     logger.warning(f'Can not compute port {port}, is it exist?')
     return port
+
+
+def is_serial_port_in_use(port: str) -> bool:
+    """Return whether the serial device is likely open in another process.
+
+    Resolves ``port`` with :func:`compute_serial_port`, then prefers ``fuser(1)``
+    (``fuser -s`` on the device path: exit 0 means some process is using the
+    file). If ``fuser`` is unavailable, fails, or returns an unexpected exit
+    code, falls back to ``lsof(8)`` (exit 0 means holders were found).
+
+    If neither tool is available or both fail, raise OSError (occupancy unknown; callers may still open the port).
+    """
+    device = compute_serial_port(port)
+
+    check_commands = {
+        'fuser': {
+            'cmd': ['fuser', '-s', device],
+            'return_code': 0,
+        },
+        'lsof': {
+            'cmd': ['lsof', device],
+            'return_code': 0,
+        },
+    }
+
+    for cmd, cmd_info in check_commands.items():
+        if shutil.which(cmd):
+            try:
+                _cmd: List[str] = cmd_info['cmd']  # type: ignore
+                proc = subprocess.run(
+                    _cmd,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError as e:
+                raise OSError(f'Failed to run {cmd} on {device}') from e
+            if proc.returncode == cmd_info['return_code']:
+                return True
+            return False
+    raise OSError(f'Failed to check if serial port {device} is in use')

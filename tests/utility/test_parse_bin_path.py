@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
+import esptest.utility.parse_bin_path as parse_bin_path_module
 from esptest.all import DutConfig
 from esptest.common.compat_typing import Generator
-from esptest.tools.download_bin import bin_path_to_dir
-from esptest.utility.parse_bin_path import ParseBinPath, SDKConfig, get_baud_from_bin_path
+from esptest.utility.parse_bin_path import ParseBinPath, SDKConfig, bin_path_to_dir, get_baud_from_bin_path
 
 TEST_FILE_PATH = Path(__file__).parent / '_files'
 
@@ -171,6 +171,65 @@ def test_bin_path_to_dir() -> None:
     parse_bin_path = ParseBinPath(bin_path)
     assert Path(parse_bin_path.bin_path).parts[-1] == 'test-bin'
     assert parse_bin_path.chip == 'esp32c5'
+
+
+def test_flash_partition_args_with_bin_files(test_bin_path: Path, tmp_path: Path) -> None:
+    """flash_partition_args 应拼接各分区的 offset 与 bin 路径（write_flash 公共前缀与 flash_bin_args 一致）。"""
+    parse_bin_path = ParseBinPath(test_bin_path)
+    factory_bin = tmp_path / 'factory.bin'
+    factory_bin.write_bytes(b'\x00\x01\x02')
+    args = parse_bin_path.flash_partition_args({'factory': str(factory_bin)})
+    assert args[:14] == [
+        '--chip',
+        'esp32c5',
+        '--before',
+        'default_reset',
+        '--after',
+        'hard_reset',
+        '--no-stub',
+        'write_flash',
+        '--flash_mode',
+        'dio',
+        '--flash_size',
+        '2MB',
+        '--flash_freq',
+        '80m',
+    ]
+    assert args[-2] == '0x10000'
+    assert args[-1] == str(factory_bin)
+
+
+def test_flash_partition_args_nvs_empty_generates_erase_bin(
+    test_bin_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """nvs 传入空字符串时应生成全 0xff 的临时 bin（与 erase nvs 语义一致）。"""
+    out = tmp_path / 'nvs_erase.bin'
+
+    def _fake_mktemp() -> str:
+        return str(out)
+
+    # 使用模块对象 patch，避免 pytest 对长点号路径 resolve 时在个别环境下误解析
+    monkeypatch.setattr(parse_bin_path_module.tempfile, 'mktemp', _fake_mktemp)
+    parse_bin_path = ParseBinPath(test_bin_path)
+    args = parse_bin_path.flash_partition_args({'nvs': ''})
+    assert out.is_file()
+    assert out.read_bytes() == b'\xff' * (24 * 1024)
+    assert args[-2] == '0x9000'
+    assert args[-1] == str(out)
+
+
+def test_flash_partition_args_missing_file_raises(test_bin_path: Path) -> None:
+    parse_bin_path = ParseBinPath(test_bin_path)
+    with pytest.raises(ValueError, match='Can not find or open partition bin file'):
+        parse_bin_path.flash_partition_args({'factory': '/no/such/partition.bin'})
+
+
+def test_flash_partition_args_unknown_partition_raises(test_bin_path: Path, tmp_path: Path) -> None:
+    parse_bin_path = ParseBinPath(test_bin_path)
+    dummy = tmp_path / 'x.bin'
+    dummy.write_bytes(b'\x00')
+    with pytest.raises(ValueError, match='Can not find no_such_part partition info'):
+        parse_bin_path.flash_partition_args({'no_such_part': str(dummy)})
 
 
 if __name__ == '__main__':

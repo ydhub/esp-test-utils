@@ -41,7 +41,6 @@ include = ["esptest"]
         "esptool",
         "packaging",
         "rich",
-        "sqlalchemy",
         "typing_extensions; python_version < '3.11'"
     ]
 
@@ -157,9 +156,6 @@ include = ["esptest"]
     warn_no_return           = true                                # Shows errors for missing return statements on some execution paths
     warn_return_any          = true                                # Shows a warning when returning a value with type Any from a function declared with a non- Any return type
     allow_redefinition       = true                                # allow a variable to be redefined with an unrelated type
-    plugins                  = [
-        "sqlalchemy.ext.mypy.plugin"
-    ]
 
 
 [tool.commitizen]
