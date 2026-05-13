@@ -322,15 +322,11 @@ class ParseBinPath:
         Returns:
             t.Tuple[str, str]: <offset>, <nvs_bin_path>
         """
-
-        for part in self.parse_partitions():
-            if part.name != 'nvs':
-                continue
-            nvs_bin = tempfile.mktemp()
-            with open(nvs_bin, 'wb+') as f:
-                f.write(b'\xff' * part.size)
-            return part.offset, nvs_bin
-        raise ValueError('Can not get nvs partition info')
+        nvs_partition_info = self.get_partition_info('nvs')
+        nvs_bin = tempfile.mktemp()
+        with open(nvs_bin, 'wb+') as f:
+            f.write(b'\xff' * nvs_partition_info.size)
+        return nvs_partition_info.offset, nvs_bin
 
     def erase_flash_args(self, baudrate: int = 0) -> t.List[str]:
         args = []
@@ -386,15 +382,27 @@ class ParseBinPath:
 
     def flash_nvs_args(self, nvs_bin: str = '') -> t.List[str]:
         args = self._write_flash_args_common()
-        for part in self.parse_partitions():
-            if part.name != 'nvs':
-                continue
-            # write nvs
-            if nvs_bin:
-                return args + [part.offset, nvs_bin]
-            # erase nvs
-            return args + list(self._gen_erase_nvs_bin())
-        raise ValueError('Can not find nvs partition info')
+        # write nvs
+        nvs_partition_info = self.get_partition_info('nvs')
+        if nvs_bin:
+            return args + [nvs_partition_info.offset, nvs_bin]
+        # erase nvs
+        return args + list(self._gen_erase_nvs_bin())
+
+    def dump_nvs_args(self, filename: str) -> t.List[str]:
+        args = [
+            '--chip',
+            self.chip,
+            '--before',
+            self.flasher_args['extra_esptool_args']['before'],
+            '--after',
+            'hard_reset',
+        ]
+        if not self.stub:
+            args += ['--no-stub']
+        nvs_partition_info = self.get_partition_info('nvs')
+        args += ['read_flash', nvs_partition_info.offset, str(nvs_partition_info.size), str(filename)]
+        return args
 
     def flash_partition_args(self, partition_bins: t.Dict[str, str]) -> t.List[str]:
         """Get write_flash args for a partition"""
