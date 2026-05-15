@@ -1,3 +1,15 @@
+## v0.4.0 (2026-05-14)
+
+
+- feat: add fetch repo script
+- feat: add script to control relay power on
+- feat: add nvs dump args and reuse partition lookup
+- fix: remove database / sqlalchemy from esptest
+- feat: support download partition
+- feat: add check serial port in use
+- feat: add copy_bin cli options and option behavior tests
+- fix: correct copy_bin zip output and add regression test
+
 ## v0.3.4 (2026-04-27)
 
 
