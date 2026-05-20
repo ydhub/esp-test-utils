@@ -7,6 +7,11 @@
 [tool.setuptools.packages.find]
 include = ["esptest"]
 
+[tool.setuptools.package-data]
+esptest = [
+    "bta_remote_api/Binaries/btacli/linux-x64/*",
+]
+
 [project]
     authors = [
         { name = "Chen Yudong", email = "chenyudong@espressif.com" },
