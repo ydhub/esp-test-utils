@@ -22,6 +22,7 @@ def test_download_bin_to_ports_calls_down_tool_per_port(
     mock_down_bin_tool.assert_any_call(
         bin_path,
         '/dev/ttyUSB0',
+        baud=0,
         erase_nvs=True,
         esptool='',
         force_no_stub=False,
@@ -30,6 +31,7 @@ def test_download_bin_to_ports_calls_down_tool_per_port(
     mock_down_bin_tool.assert_any_call(
         bin_path,
         '/dev/ttyUSB1',
+        baud=0,
         erase_nvs=True,
         esptool='',
         force_no_stub=False,
@@ -52,6 +54,7 @@ def test_download_bins_calls_down_tool_per_config(
     mock_down_bin_tool.assert_any_call(
         '/path/to/bin1',
         '/dev/ttyUSB0',
+        baud=0,
         erase_nvs=True,
         esptool='',
         force_no_stub=False,
@@ -60,6 +63,7 @@ def test_download_bins_calls_down_tool_per_config(
     mock_down_bin_tool.assert_any_call(
         '/path/to/bin2',
         '/dev/ttyUSB1',
+        baud=0,
         erase_nvs=False,
         esptool='',
         force_no_stub=False,
@@ -83,6 +87,7 @@ def test_download_bins_default_max_workers(mock_down_bin_tool: mock.MagicMock) -
     mock_down_bin_tool.assert_called_once_with(
         '/bin/path',
         '/dev/ttyUSB0',
+        baud=0,
         erase_nvs=True,
         esptool='',
         force_no_stub=False,
@@ -107,12 +112,44 @@ def test_download_bins_bin_config_options(mock_down_bin_tool: mock.MagicMock) ->
     mock_down_bin_tool.assert_called_once_with(
         '/path/bin',
         '/dev/ttyUSB0',
+        baud=0,
         erase_nvs=False,
         esptool='',
         force_no_stub=True,
         check_no_stub=True,
     )
     mock_down_bin_tool.return_value.download.assert_called_once()
+
+
+@mock.patch.object(download_bin_module, 'DownBinTool')
+def test_download_bin_to_ports_passes_baud_to_down_tool(mock_down_bin_tool: mock.MagicMock) -> None:
+    """download_bin_to_ports 的 baud 参数应透传给 DownBinTool。"""
+    download_bin_to_ports('/path/to/bin', ['/dev/ttyUSB0'], baud=[460800, 115200], max_workers=1)
+    mock_down_bin_tool.assert_called_once_with(
+        '/path/to/bin',
+        '/dev/ttyUSB0',
+        baud=[460800, 115200],
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
+    )
+
+
+@mock.patch.object(download_bin_module, 'DownBinTool')
+def test_download_bins_bin_config_baud_is_forwarded(mock_down_bin_tool: mock.MagicMock) -> None:
+    """download_bins 应将 BinConfig.baud 透传到 DownBinTool。"""
+    configs = [BinConfig(bin_path='/path/bin', port='/dev/ttyUSB0', baud=921600)]
+    download_bins(configs, max_workers=1)
+    mock_down_bin_tool.assert_called_once_with(
+        '/path/bin',
+        '/dev/ttyUSB0',
+        baud=921600,
+        erase_nvs=True,
+        esptool='',
+        force_no_stub=False,
+        check_no_stub=False,
+    )
 
 
 @mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')

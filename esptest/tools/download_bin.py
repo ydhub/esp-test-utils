@@ -182,6 +182,7 @@ async def async_download_bin_scheduler(  # pylint: disable=too-many-positional-a
     max_workers: int = 0,
     force_no_stub: bool = False,
     check_no_stub: bool = False,
+    baud: t.Union[int, t.List[int]] = 0,
     esptool: str = '',
 ) -> None:
     max_workers = max_workers or len(ports)
@@ -193,6 +194,7 @@ async def async_download_bin_scheduler(  # pylint: disable=too-many-positional-a
         down_tool = DownBinTool(
             bin_path,
             _port,
+            baud=baud,
             erase_nvs=erase_nvs,
             esptool=esptool,
             force_no_stub=force_no_stub,
@@ -210,20 +212,50 @@ def download_bin_to_ports(  # pylint: disable=too-many-positional-arguments,too-
     max_workers: int = 0,
     force_no_stub: bool = False,
     check_no_stub: bool = False,
+    baud: t.Union[int, t.List[int]] = 0,
     esptool: str = '',
 ) -> None:
+    """
+    Download bin to ports using esptool.
+
+    Args:
+        bin_path: Path to the bin file.
+        ports: List of serial ports.
+        erase_nvs: Whether to erase nvs before flashing.
+        max_workers: Maximum number of workers to use.
+        force_no_stub: Whether to force no stub.
+        check_no_stub: Whether to check no stub.
+        baud: Baud rate to use. If given a list, will try each baud rate in order.
+        esptool: Path to the esptool executable.
+    """
     asyncio.run(
-        async_download_bin_scheduler(bin_path, ports, erase_nvs, max_workers, force_no_stub, check_no_stub, esptool)
+        async_download_bin_scheduler(
+            bin_path, ports, erase_nvs, max_workers, force_no_stub, check_no_stub, baud, esptool
+        )
     )
 
 
 @dataclass
 class BinConfig:
+    """
+    Configuration for downloading a bin to a port.
+
+    Args:
+        bin_path: Path to the bin file.
+        port: Serial port to download to.
+        erase_nvs: Whether to erase nvs before flashing.
+        force_no_stub: Whether to force no stub.
+        check_no_stub: Whether to check no stub.
+        baud: Baud rate to use. If given a list, will try each baud rate in order.
+        esptool: Path to the esptool executable.
+    """
+
     bin_path: str
     port: str
     erase_nvs: bool = True
     force_no_stub: bool = False
     check_no_stub: bool = False
+    baud: t.Union[int, t.List[int]] = 0
     esptool: str = ''
 
 
@@ -240,6 +272,7 @@ async def async_downbin_scheduler(
         down_tool = DownBinTool(
             cfg.bin_path,
             cfg.port,
+            baud=cfg.baud,
             erase_nvs=cfg.erase_nvs,
             esptool=cfg.esptool,
             force_no_stub=cfg.force_no_stub,
@@ -251,4 +284,11 @@ async def async_downbin_scheduler(
 
 
 def download_bins(bin_configs: t.List[BinConfig], max_workers: int = 0) -> None:
+    """
+    Download bins to ports using esptool.
+
+    Args:
+        bin_configs: List of configuration for downloading a bin to a port.
+        max_workers: Maximum number of workers to use.
+    """
     asyncio.run(async_downbin_scheduler(bin_configs, max_workers))
