@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from functools import lru_cache
@@ -59,6 +60,24 @@ def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
     except (OSError, AssertionError):
         # no sdkconfig file or sdkconfig file is not valid
         return 0
+
+
+def _parse_partition_table_to_csv(parttool_path: str, part_bin: str, part_csv: str) -> str:
+    logger.debug(f'Generating partition-table.csv to {part_csv}')
+    try:
+        _cmd = ['python', parttool_path, str(part_bin), str(part_csv)]
+        subprocess.check_call(_cmd, shell=False)
+        # make sure partition-table.csv is generated
+        for _ in range(20):
+            if Path(part_csv).is_file():
+                break
+            time.sleep(0.05)
+        else:
+            raise FileNotFoundError(f'{part_csv} is not created after 1 second')
+    except subprocess.SubprocessError as e:
+        logger.error(f'Failed to gen {part_csv}: {str(e)}')
+        raise e
+    return part_csv
 
 
 class SDKConfig(t.Dict[str, t.Any]):
@@ -238,6 +257,7 @@ class ParseBinPath:
             return Path(self._partition_table_csv_path)
         return Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
 
+    @lru_cache()
     def _gen_partition_table(self, part_csv: t.Optional[Path] = None) -> None:
         part_csv = Path(self.bin_path) / 'partition_table' / 'partition-table.csv'
         part_bin = Path(self.bin_path) / 'partition_table' / 'partition-table.bin'
@@ -252,20 +272,9 @@ class ParseBinPath:
             part_csv = Path(tempfile.mktemp(suffix='.csv'))
             self._partition_table_csv_path = str(part_csv)
         logger.debug(f'Generating partition-table.csv to {part_csv}')
-        try:
-            _cmd = ['python', self.parttool_path, str(part_bin), str(part_csv)]
-            subprocess.check_call(_cmd, shell=False)
-        except subprocess.SubprocessError as e:
-            logger.error(f'Failed to gen partition-table.csv: {str(e)}')
-            raise e
+        _parse_partition_table_to_csv(self.parttool_path, str(part_bin), str(part_csv))
 
-    @lru_cache()
-    def parse_partitions(self) -> t.List[PartitionInfo]:
-        """Parse partitions from partition-table.csv"""
-        self._gen_partition_table()
-        partition_table_file = self.partition_table_csv_path
-        if not partition_table_file.is_file():
-            raise ValueError('Can not parse partition table')
+    def _parse_partition_table_csv(self, partition_table_file: Path) -> t.List[PartitionInfo]:
         # # Name, Type, SubType, Offset, Size, Flags
         # nvs,data,nvs,0x9000,24K,
         # phy_init,data,phy,0xf000,4K,
@@ -300,6 +309,14 @@ class ParseBinPath:
         except (FileNotFoundError, json.JSONDecodeError):
             pass
         return partitions
+
+    def parse_partitions(self) -> t.List[PartitionInfo]:
+        """Parse partitions from partition-table.csv"""
+        self._gen_partition_table()
+        partition_table_file = self.partition_table_csv_path
+        if not partition_table_file.is_file():
+            raise ValueError('Can not parse partition table')
+        return self._parse_partition_table_csv(partition_table_file)
 
     def _write_flash_args_common(self, baudrate: int = 0) -> t.List[str]:
         args = []

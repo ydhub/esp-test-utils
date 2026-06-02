@@ -164,6 +164,23 @@ def test_parse_partitions_when_partition_table_dir_read_only(test_bin_path: Path
     assert len(partitions) == 6
     assert set(p.name for p in partitions) == {'nvs', 'phy_init', 'factory', 'wpa2_cer', 'wpa2_key', 'wpa2_ca'}
     assert parser.partition_table_csv_path  # attribute should be set
+    assert parser.partition_table_csv_path.is_file()
+
+
+def test_parse_partitions_raises_when_generated_csv_not_found(
+    test_bin_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gen_esp32part 执行后 csv 仍未出现时应抛出 FileNotFoundError"""
+    partition_file = test_bin_path / 'partition_table' / 'partition-table.csv'
+    os.remove(str(partition_file))
+    assert not partition_file.is_file()
+
+    monkeypatch.setattr(parse_bin_path_module.subprocess, 'check_call', lambda *args, **kwargs: None)
+    monkeypatch.setattr(parse_bin_path_module.time, 'sleep', lambda *_args, **_kwargs: None)
+
+    parser = ParseBinPath(test_bin_path)
+    with pytest.raises(FileNotFoundError, match='is not created after 1 second'):
+        parser.parse_partitions()
 
 
 def test_bin_path_to_dir() -> None:
