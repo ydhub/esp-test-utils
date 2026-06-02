@@ -97,8 +97,14 @@ def test_pexpect_spawn_port_read_write() -> None:
     shell_cmd = '/bin/bash'
     with PexpectPort(cmd=shell_cmd) as port:
         port.write_line('echo hello')
-        time.sleep(0.5)  # wait for the receive thread
-        data = port.read_all_data()
+        # Poll for output to reduce timing flakiness under full-suite load.
+        start_time = time.time()
+        data = ''
+        while time.time() - start_time < 1.0:
+            data = port.read_all_data(flush=False)
+            if 'hello' in data:
+                break  # Found the expected output
+            time.sleep(0.1)  # Wait a bit to avoid busy-waiting
         assert 'hello' in data
         port.write_line('sleep 0.1 && echo world')
         data = port.read_all_data()
