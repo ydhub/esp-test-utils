@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 import time
+import types
 import unittest
 from typing import Optional
 
@@ -14,10 +15,12 @@ if sys.platform != 'win32':
 import pytest
 import serial
 
+import esptest.common.compat_typing as t
 from esptest import dut_wrapper
 from esptest.adapter.dut import DutBase
 from esptest.adapter.dut.create_dut import create_dut
 from esptest.adapter.dut.dut_base import DutConfig
+from esptest.adapter.dut.esp_dut import EspDut
 from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort, g
 from esptest.adapter.port.serial_port import SerialExt
 from esptest.adapter.port.shell_port import ShellRaw
@@ -112,6 +115,63 @@ def test_dut_add_remove_clear_monitor() -> None:
         assert dut._base_port_proxy.spawn._monitors == []  # pylint: disable=protected-access
     finally:
         dut.close()
+
+
+def test_esp_dut_remote_url_uses_serial_for_url() -> None:
+    base_port = None
+    dut = object.__new__(EspDut)
+    dut._kwargs = {}
+    dut._raw_port = None
+    dut._dut_config = DutConfig(
+        name='remote_dut',
+        device='loop://',
+        baudrate=74880,
+        serial_configs={'timeout': 0.123, 'rtscts': False},
+        support_esptool=False,
+    )
+    try:
+        base_port = EspDut._create_base_port(dut)
+        assert isinstance(base_port, BasePort)
+        assert isinstance(dut._raw_port, serial.SerialBase)
+        assert dut._raw_port.port == 'loop://'
+        assert dut._raw_port.is_open is True
+        assert dut._raw_port.rts is False
+        assert dut._raw_port.dtr is False
+        # real serial_for_url(loop://) should read back what we wrote
+        dut._raw_port.write(b'hello')
+        assert dut._raw_port.read(5) == b'hello'
+    finally:
+        if base_port:
+            base_port.close()
+
+
+def test_esp_dut_close_closes_serial_base_raw_port() -> None:
+    raw_port = serial.SerialBase.__new__(serial.SerialBase)
+    close_called = {'count': 0}
+
+    def _close(_self) -> None:  # type: ignore
+        close_called['count'] += 1
+
+    raw_port.close = types.MethodType(_close, raw_port)  # type: ignore
+
+    class FakeBasePort:
+        def __init__(self, rp: t.Optional[serial.SerialBase]) -> None:
+            self.raw_port = rp
+            self.close_called = 0
+
+        def close(self) -> None:
+            self.close_called += 1
+
+    base_port = FakeBasePort(raw_port)
+    dut = object.__new__(EspDut)
+    dut._base_port_proxy: t.Optional[BasePort] = base_port  # type: ignore
+    dut._close_base_port_when_exit = True
+    dut._close_raw_port_when_exit = True
+
+    EspDut.close(dut)
+
+    assert base_port.close_called == 1
+    assert close_called['count'] == 1
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Windows does not support pty')

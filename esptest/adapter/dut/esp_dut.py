@@ -5,7 +5,7 @@ import esptest.common.compat_typing as t
 
 from ...devices.serial_tools import compute_serial_port
 from ..port.base_port import BasePort, RawPort
-from ..port.serial_port import SerialExt, SerialPort
+from ..port.serial_port import SerialPort
 from .dut_base import DutBase, DutConfig
 from .esp_mixin import EspMixin, EspSerial
 from .mac_mixin import MacMixin
@@ -56,8 +56,15 @@ class EspDut(_DefaultMixins, DutBase):
             _esp.hard_reset()
             self._raw_port = _esp
             return BasePort(EspSerial(self._raw_port), name=_config.name, log_file=_config.log_file, **self._kwargs)
-        # create basic serial port
-        self._raw_port = SerialExt(port=_device, baudrate=_config.baudrate, **(_config.serial_configs or {}))
+        # create basic serial port -  always use serial_for_url to support remote serial port
+        _serial_config = dict(_config.serial_configs or {})
+        _serial_config['do_not_open'] = True
+        self._raw_port = serial.serial_for_url(_device, baudrate=_config.baudrate, **_serial_config)
+        # Set flow control before open (for remote serial port)
+        if _serial_config.get('rtscts', True) is False:
+            self._raw_port.rts = False  # type: ignore
+            self._raw_port.dtr = False  # type: ignore
+        self._raw_port.open()  # type: ignore
         return SerialPort(self._raw_port, name=_config.name, log_file=_config.log_file, **self._kwargs)
 
     def close(self) -> None:
@@ -67,7 +74,7 @@ class EspDut(_DefaultMixins, DutBase):
         if self._close_raw_port_when_exit:
             if isinstance(self.raw_port, esptool.ESPLoader):
                 self.raw_port._port.close()  # pylint: disable=protected-access
-            elif isinstance(self.raw_port, serial.Serial):
+            elif isinstance(self.raw_port, serial.SerialBase):
                 self.raw_port.close()
             # TODO: other types
         super().close()

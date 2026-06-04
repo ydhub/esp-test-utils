@@ -140,7 +140,16 @@ class SerialPortMixin(MixinBase):
 
     def reopen(self) -> None:
         """Open the same serial port again and enable serial read thread."""
-        self.serial = serial.Serial(**self._serial_config)
+        _config = self._serial_config
+        port_or_url = _config.pop('port')
+        # self.serial = serial.Serial(port_or_url, **self._serial_config)
+        _config['do_not_open'] = True
+        self.serial = serial.serial_for_url(port_or_url, **self._serial_config)
+        # Set flow control before open (for remote serial port)
+        if _config.get('rtscts', True) is False:
+            self.serial.rts = False
+            self.serial.dtr = False
+        self.serial.open()
 
 
 class SerialPort(SerialPortMixin, BasePort):
