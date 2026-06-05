@@ -1,3 +1,11 @@
+## v0.4.1 (2026-06-05)
+
+
+- feat: add TempBox controller
+- fix: use serial_for_url support remote serial port
+- feat: support set baud in download_bins
+- fix: ensure partition csv file created after parse partition
+
 ## v0.4.0 (2026-05-14)
 
 
