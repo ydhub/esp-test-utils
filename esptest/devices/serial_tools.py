@@ -1,3 +1,4 @@
+import logging
 import shutil
 import subprocess
 from functools import lru_cache
@@ -30,6 +31,9 @@ def compute_serial_port(port: str, strict: bool = False) -> str:
     Returns:
         str: port device. return the given input port
     """
+    if '://' in port:
+        logging.debug(f'Skip compute remote port {port}')
+        return port
     ports = get_all_serial_ports(include_links=True)
     for p in ports:
         if port in [p.name, p.device, p.location]:
