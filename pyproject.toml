@@ -91,6 +91,7 @@ include = ["esptest"]
     [project.scripts]
         esp-setatt = "esptest.scripts.set_att:main"
         esp-relay = "esptest.scripts.relay:main"
+        esp-tempbox = "esptest.scripts.tempbox:main"
         esp-listports = "esptest.scripts.list_ports:main"
         esp-monitor = "esptest.scripts.monitor:main"
         esp-downbin = "esptest.scripts.downbin:main"
