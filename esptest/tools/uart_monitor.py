@@ -1,63 +1,54 @@
 import asyncio
 import os
-import re
-import sys
 import threading
 import time
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, asdict
 from queue import Queue
-from typing import Dict, List
+from typing import Deque, Dict, List
 
 import pyudev
 from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+import serial
 from serial.tools import list_ports
 
-CHIP_NAME_PATTERN = re.compile(r'Chip is ([\w\- ]+).*\(revision (v[\d\.]+)\)')
-CHIP_NAME_PATTERN_NEW = re.compile(r'Chip type:\s+([\w\- ]+).+\(revision (v[\d\.]+)\)')
-CHIP_XTAL_PATTERN = re.compile(r'Crystal is ([\w\-]+)')
-CHIP_XTAL_PATTERN_NEW = re.compile(r'Crystal frequency:\s+([\w\-]+)')
-CHIP_MAC_PATTERN = re.compile(r'MAC:\s+([a-fA-F0-9:]+)')
-CHIP_FLASH_PATTERN = re.compile(r'Detected flash size: (\d+\w+)')
-WORKER_NUM = 4
-MAX_RECENT_DEVICES = 5
-MAX_DETECT_RETRY = 4
+from ..devices.esp_serial import EspPortInfo, detect_port_info_no_cache
 
+MAX_RECENT_DEVICES = 5
+MAX_DETECT_RETRY = 2
+MAX_DEBUG_LOGS = 20
 
 # Debug mode: set UART_MONITOR_DEBUG=1 to keep screen history and show debug logs.
 DEBUG = os.environ.get('UART_MONITOR_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
 
 
-def debug_print(*args, **kwargs):  # type: ignore
-    """Print debug message to stderr when debug mode is enabled."""
-    if not DEBUG:
-        return
-    print('[DEBUG]', *args, **kwargs, flush=True)
-
-
 @dataclass
 class Chip:
-    name: str = ''
+    target: str = ''
     mac: str = ''
     revision: str = ''
     xtal: str = ''
     flash: str = ''
+    description: str = ''
 
     def clear(self) -> None:
-        self.name = ''
+        self.target = ''
         self.mac = ''
         self.revision = ''
         self.xtal = ''
         self.flash = ''
+        self.description = ''
 
 
 @dataclass
 class Device:
-    location: str
-    sys_device: str
     name: str
+    sys_device: str
+    location: str
+    description: str
     connected: bool
     last_seen: float
     first_seen: float
@@ -69,6 +60,60 @@ devices: Dict[str, Device] = {}
 devices_lock = threading.Lock()
 detect_queue: Queue[Device] = Queue()
 recent_devices: List[Device] = []  # recent connecting devices
+debug_logs: Deque[str] = deque(maxlen=MAX_DEBUG_LOGS)
+debug_logs_lock = threading.Lock()
+
+
+def debug_print(*args, **kwargs) -> None:  # type: ignore
+    """Record debug message for on-screen debug log panel."""
+    if not DEBUG:
+        return
+    with debug_logs_lock:
+        debug_logs.append('[DEBUG] ' + ' '.join(str(arg) for arg in args))
+
+
+def _update_chip_from_port_info(chip: Chip, esp_port: EspPortInfo) -> bool:
+    if not esp_port.support_esptool:
+        chip.clear()
+        chip.target = 'unknown'
+        chip.description = esp_port.serial_description
+        return True
+    chip.target = esp_port.target
+    chip.revision = esp_port.chip_version
+    chip.xtal = f'{esp_port.chip_xtal}MHz' if esp_port.chip_xtal else ''
+    chip.mac = esp_port.mac
+    chip.flash = esp_port.flash_size or ''
+    chip.description = esp_port.chip_description
+    return True
+
+
+async def detect_port_chip(device: Device) -> None:
+    """Detect chip info on a serial port with retry."""
+    retry = MAX_DETECT_RETRY
+    while True:
+        esp_port_info = None
+        try:
+            esp_port_info = await asyncio.to_thread(
+                detect_port_info_no_cache,
+                device.sys_device,
+                device.location,
+                device.description,
+            )
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            debug_print(f'{device.sys_device} detect info failed {type(e)}: {str(e)}')
+
+        debug_print(esp_port_info)
+        if esp_port_info:
+            _update_chip_from_port_info(device.chip, esp_port_info)
+            if esp_port_info.support_esptool:
+                return
+
+        # retry if esptool failed
+        if retry > 0:
+            retry -= 1
+            await asyncio.sleep(1 * (MAX_DETECT_RETRY - retry))
+            continue
+        return
 
 
 async def detect_chip(device: Device) -> None:
@@ -80,59 +125,15 @@ async def detect_chip(device: Device) -> None:
         await proc.communicate()
 
         if proc.returncode == 0:
-            device.chip.name = ''
+            debug_print(f'{device.sys_device} is occupied (lsof)')
+            device.chip.target = ''
             return  # lsof got succ, the device is occupied
     except FileNotFoundError:
-        debug_print('lsof command not available: apt-get install lsof', file=sys.stderr)
-        device.chip.name = ''
+        debug_print('lsof command not available: apt-get install lsof')
+        device.chip.target = ''
         return
 
-    retry = MAX_DETECT_RETRY
-    try:
-        while True:
-            proc = await asyncio.create_subprocess_exec(
-                'esptool.py',
-                '-p',
-                device.sys_device,
-                'flash_id',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            output = stdout.decode('utf8')
-            debug_print(output)
-
-            m = CHIP_NAME_PATTERN.search(output)
-            if m:
-                device.chip.name = m.group(1)
-                device.chip.revision = m.group(2)
-            elif m := CHIP_NAME_PATTERN_NEW.search(output):
-                device.chip.name = m.group(1)
-                device.chip.revision = m.group(2)
-            m = CHIP_XTAL_PATTERN.search(output)
-            if m:
-                device.chip.xtal = m.group(1)
-            elif m := CHIP_XTAL_PATTERN_NEW.search(output):
-                device.chip.xtal = m.group(1)
-            m = CHIP_MAC_PATTERN.search(output)
-            if m:
-                device.chip.mac = m.group(1)
-            m = CHIP_FLASH_PATTERN.search(output)
-            if m:
-                device.chip.flash = m.group(1)
-
-            if device.chip.name:
-                break
-            if 'busy' in output:
-                if retry > 0:
-                    retry -= 1
-                    await asyncio.sleep(1 * (MAX_DETECT_RETRY - retry))
-                    continue
-            # not an esp32 device or other error types
-            break
-    except FileNotFoundError:
-        debug_print('esptool command not available: pip install esptool', file=sys.stderr)
-        device.chip.name = ''
+    await detect_port_chip(device)
 
 
 async def detect_all_chips() -> None:
@@ -169,10 +170,11 @@ def refresh_serial_ports(initial: bool = True) -> bool:
                         changed = True
                         device.first_seen = timestamp
                         device.chip.clear()
-                        device.chip.name = 'Detecting...'
+                        device.chip.target = 'Detecting...'
                         # the device name and location may change, so we update it
                         device.sys_device = port.device
                         device.location = port.location
+                        device.description = port.description
                         detect_queue.put(device)
                         if not initial:
                             recent_devices.append(device)
@@ -182,7 +184,16 @@ def refresh_serial_ports(initial: bool = True) -> bool:
                     device.last_seen = timestamp
                 else:
                     # new device
-                    device = Device(port.location, port.device, name, True, timestamp, timestamp, Chip('Detecting...'))
+                    device = Device(
+                        name,
+                        port.device,
+                        port.location,
+                        port.description,
+                        connected=True,
+                        last_seen=timestamp,
+                        first_seen=timestamp,
+                        chip=Chip(target='Detecting...'),
+                    )
                     devices[iface_path] = device
                     detect_queue.put(device)
                     if not initial:
@@ -221,16 +232,31 @@ def check_new_devices_status() -> None:
         display_serial_ports()
 
 
+def _add_debug_logs_row() -> None:
+    if not DEBUG:
+        return
+    with debug_logs_lock:
+        logs = list(debug_logs)
+    log_table = Table(title='Debug Logs', header_style='', box=box.ROUNDED, show_header=False)
+    log_table.add_column('Message', overflow='fold')
+    if logs:
+        for line in logs:
+            log_table.add_row(Text(line, style='dim'))
+    else:
+        log_table.add_row(Text('(no logs yet)', style='dim italic'))
+    console.print(log_table)
+
 def display_serial_ports() -> None:
     table = Table(title='Serial Ports', header_style='', box=box.ROUNDED)
     table.add_column('Location', justify='left', min_width=15)
     table.add_column('Name', justify='left', min_width=10)
     table.add_column('Status', justify='center')
-    table.add_column('Chip', justify='left', min_width=15)
+    table.add_column('Target', justify='left', min_width=15)
     table.add_column('Revision', justify='left')
     table.add_column('XTAL', justify='left')
     table.add_column('MAC', justify='left', min_width=25)
     table.add_column('Flash', justify='left')
+    table.add_column('Description', justify='left')
 
     with devices_lock:
         sorted_devices = sorted(devices.values(), key=lambda d: d.location)
@@ -250,21 +276,23 @@ def display_serial_ports() -> None:
 
             location_text = Text(device.location, style=style)
             name_text = Text(device.name, style=style)
-            chip = Text(device.chip.name, style=style)
+            target = Text(device.chip.target, style=style)
             rev = Text(device.chip.revision, style=style)
             xtal = Text(device.chip.xtal, style=style)
             mac = Text(device.chip.mac, style=style)
             flash = Text(device.chip.flash, style=style)
+            description = Text(device.chip.description, style=style)
 
             table.add_row(
                 location_text,
                 name_text,
                 status_text,
-                chip,
+                target,
                 rev,
                 xtal,
                 mac,
                 flash,
+                description,
                 end_section=(i == len(sorted_devices) - 1),
             )
 
@@ -274,17 +302,19 @@ def display_serial_ports() -> None:
                     location_text = Text(device.location)
                     name_text = Text(device.name)
                     status_text = Text('●', style='green')
-                    chip = Text(device.chip.name)
+                    target = Text(device.chip.target)
                     rev = Text(device.chip.revision)
                     xtal = Text(device.chip.xtal)
                     mac = Text(device.chip.mac)
                     flash = Text(device.chip.flash)
-                    table.add_row(location_text, name_text, status_text, chip, rev, xtal, mac, flash)
+                    description = Text(device.chip.description)
+                    table.add_row(
+                        location_text, name_text, status_text, target, rev, xtal, mac, flash, description
+                    )
 
-    # In debug mode, do not clear the screen so previous debug prints are kept.
-    if not DEBUG:
-        console.clear()
+    console.clear()
     console.print(table)
+    _add_debug_logs_row()
     console.print('Press Ctrl+C to exit')
 
 

@@ -1,5 +1,8 @@
+import json
+import logging
 import argparse
 import sys
+from dataclasses import asdict
 
 try:
     # Run from `python -m esptest.scripts.list_ports`
@@ -20,17 +23,27 @@ def run_uart_monitor() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--monitor', action='store_true', help='run uart port monitor')
+    parser.add_argument('--format', type=str, default='text', help='output format: text, json')
     args = parser.parse_args()
 
     if args.monitor:
         run_uart_monitor()
         return
 
+    if args.format == 'json':
+        data = []
+        for port in list_all_esp_ports():
+            data.append(asdict(port))
+        print(json.dumps(data, indent=4))
+        return
+
     print('All devices:')
-    print('Device,        Location,    esptool,   target,   description')
+    print('Device           Location     target  version xtal mac                 description')
     for port in list_all_esp_ports():
-        desc = port.chip_description if port.support_esptool else port.serial_description
-        print(f'{port.device:>10s},  {port.location:12s},  {port.support_esptool},   {port.target:8s},  {desc:30s}')
+        if port.support_esptool:
+            print(f'{port.device:16s} {port.location:12s} {port.target:8s} {port.chip_version:8s} {port.mac:20s} {port.chip_description}  {str(port)}')
+        else:
+            print(f'{port.device:16s} {port.location:12s}  -----  {port.serial_description} [esptool not supported]')
 
 
 if __name__ == '__main__':

@@ -1,10 +1,12 @@
 import io
+import sys
+import threading
 import time
 from contextlib import redirect_stdout
 
 import pytest
 
-from esptest.common.decorators import retry, timeit
+from esptest.common.decorators import retry, suppress_stdout, timeit
 
 
 def test_retry_on_result() -> None:
@@ -117,6 +119,63 @@ def test_timeit() -> None:
         out = f1.getvalue().strip()
         assert 'Func2 time used: ' in out
         assert '0.1' in out
+
+
+def test_suppress_stdout_discards_output() -> None:
+    @suppress_stdout()
+    def noisy(value: int) -> int:
+        print(f'stdout noise {value}')
+        print(f'stderr noise {value}', file=sys.stderr)
+        return value * 2
+
+    # Capture from the caller side to ensure nothing leaks out of the decorated call.
+    with redirect_stdout(io.StringIO()) as out:
+        ret = noisy(21)
+    assert ret == 42
+    assert out.getvalue() == ''
+
+
+def test_suppress_stdout_restores_streams() -> None:
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    @suppress_stdout()
+    def noisy() -> None:
+        print('should be discarded')
+
+    noisy()
+    # Streams must be restored even though they were swapped during the call.
+    assert sys.stdout is original_stdout
+    assert sys.stderr is original_stderr
+
+
+def test_suppress_stdout_serializes_concurrent_calls() -> None:
+    active = 0
+    max_active = 0
+    state_lock = threading.Lock()
+
+    @suppress_stdout()
+    def worker() -> None:
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        print('discarded while running')
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+
+    original_stdout = sys.stdout
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # The shared lock must allow only one decorated call at a time, and the global
+    # stdout swap must be restored cleanly after concurrent execution.
+    assert max_active == 1
+    assert sys.stdout is original_stdout
 
 
 if __name__ == '__main__':
