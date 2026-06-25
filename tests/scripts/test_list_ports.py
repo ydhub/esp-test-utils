@@ -24,10 +24,12 @@ def _sample_ports() -> list:
 
 
 def test_main_json_format(capsys: pytest.CaptureFixture) -> None:
-    with mock.patch.object(list_ports, 'list_all_esp_ports', return_value=_sample_ports()), mock.patch.object(
-        list_ports.sys, 'argv', ['list_ports', '--format', 'json']
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(list_ports, 'list_all_esp_ports', return_value=_sample_ports()), \
+        mock.patch.object(list_ports.sys, 'argv', ['list_ports', '--format', 'json']):
         list_ports.main()
+    # fmt: on
 
     out = capsys.readouterr().out
     data = json.loads(out)
@@ -39,24 +41,29 @@ def test_main_json_format(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_main_text_format(capsys: pytest.CaptureFixture) -> None:
-    with mock.patch.object(list_ports, 'list_all_esp_ports', return_value=_sample_ports()), mock.patch.object(
-        list_ports.sys, 'argv', ['list_ports']
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(list_ports, 'list_all_esp_ports', return_value=_sample_ports()), \
+        mock.patch.object(list_ports.sys, 'argv', ['list_ports']):
         list_ports.main()
+    # fmt: on
 
     out = capsys.readouterr().out
     assert 'All devices:' in out
     assert '/dev/ttyUSB0' in out
     assert 'esp32c3' in out
     # esptool-unsupported ports show a fallback marker
-    assert 'esptool not supported' in out
+    assert 'not esp port' in out
 
 
 def test_main_monitor_dispatches(capsys: pytest.CaptureFixture) -> None:
-    with mock.patch.object(list_ports, 'run_uart_monitor') as run_monitor, mock.patch.object(
-        list_ports, 'list_all_esp_ports'
-    ) as list_ports_mock, mock.patch.object(list_ports.sys, 'argv', ['list_ports', '--monitor']):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(list_ports, 'run_uart_monitor') as run_monitor, \
+        mock.patch.object(list_ports, 'list_all_esp_ports') as list_ports_mock, \
+        mock.patch.object(list_ports.sys, 'argv', ['list_ports', '--monitor']):
         list_ports.main()
+    # fmt: on
 
     run_monitor.assert_called_once()
     list_ports_mock.assert_not_called()

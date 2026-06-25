@@ -40,10 +40,14 @@ def _make_fake_esp() -> mock.MagicMock:
 
 def test_get_esp_port_info_success() -> None:
     esp = _make_fake_esp()
-    with mock.patch.object(esptool.cmds, 'attach_flash'), mock.patch.object(
-        esptool.cmds, 'detect_flash_size', return_value='4MB'
-    ):
+    # create=True so the patch works even on the older esptool used on Python 3.7,
+    # which does not expose attach_flash/detect_flash_size.
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esptool.cmds, 'attach_flash', create=True), \
+        mock.patch.object(esptool.cmds, 'detect_flash_size', create=True, return_value='4MB'):
         info = _get_esp_port_info(esp)
+    # fmt: on
 
     assert info['chip_name'] == 'ESP32-C3'
     assert info['mac'] == '24:6f:28:01:02:03'
@@ -58,7 +62,7 @@ def test_get_esp_port_info_partial_failure() -> None:
     """chip_name/target must still be populated when reading details fails."""
     esp = _make_fake_esp()
     esp.read_mac.side_effect = RuntimeError('read mac failed')
-    with mock.patch.object(esptool.cmds, 'attach_flash', side_effect=RuntimeError('no flash')):
+    with mock.patch.object(esptool.cmds, 'attach_flash', create=True, side_effect=RuntimeError('no flash')):
         info = _get_esp_port_info(esp)
 
     assert info['chip_name'] == 'ESP32-C3'
@@ -71,10 +75,12 @@ def test_get_esp_port_info_partial_failure() -> None:
 def test_get_esp_port_info_unrecognized_chip_name() -> None:
     esp = _make_fake_esp()
     esp.CHIP_NAME = 'ESP32-FOO'
-    with mock.patch.object(esptool.cmds, 'attach_flash'), mock.patch.object(
-        esptool.cmds, 'detect_flash_size', return_value='4MB'
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esptool.cmds, 'attach_flash', create=True), \
+        mock.patch.object(esptool.cmds, 'detect_flash_size', create=True, return_value='4MB'):
         info = _get_esp_port_info(esp)
+    # fmt: on
     assert info['chip_name'] == 'ESP32-FOO'
     assert info['target'] == 'unknown'
 
@@ -85,10 +91,14 @@ def test_detect_port_info_no_cache_success() -> None:
     chip_cm.__enter__.return_value = esp
     fake_info = {'chip_name': 'ESP32-C3', 'target': 'esp32c3', 'mac': '24:6f:28:01:02:03'}
 
-    with mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=chip_cm), mock.patch.object(
-        esp_serial, '_get_esp_port_info', return_value=fake_info
-    ):
+    # Pin version so the context-manager branch is taken regardless of installed esptool.
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial.esptool, '__version__', '5.3.0'), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=chip_cm), \
+        mock.patch.object(esp_serial, '_get_esp_port_info', return_value=fake_info):
         result = detect_port_info_no_cache('/dev/ttyUSB0', 'usb-loc', 'desc')
+    # fmt: on
 
     assert isinstance(result, EspPortInfo)
     assert result.support_esptool is True
@@ -102,9 +112,7 @@ def test_detect_port_info_no_cache_success() -> None:
 
 
 def test_detect_port_info_no_cache_fatal_error() -> None:
-    with mock.patch.object(
-        esp_serial.esptool, 'detect_chip', side_effect=esptool.util.FatalError('boom')
-    ):
+    with mock.patch.object(esp_serial.esptool, 'detect_chip', side_effect=esptool.util.FatalError('boom')):
         result = detect_port_info_no_cache('/dev/ttyUSB1', 'loc2', 'serial-desc')
 
     assert result.support_esptool is False
@@ -119,10 +127,12 @@ def test_list_all_esp_ports() -> None:
     info_a = EspPortInfo('/dev/ttyUSB0', 'loc-a', True, target='esp32c3')
     info_b = EspPortInfo('/dev/ttyUSB1', 'loc-b', False)
 
-    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=[port_a, port_b]), mock.patch.object(
-        esp_serial, 'detect_one_port', side_effect=[info_a, info_b]
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=[port_a, port_b]), \
+        mock.patch.object(esp_serial, 'detect_one_port', side_effect=[info_a, info_b]):
         result = list_all_esp_ports()
+    # fmt: on
 
     assert result == [info_a, info_b]
 
@@ -134,16 +144,20 @@ def test_get_available_ports_filters_by_target_and_max_num() -> None:
         EspPortInfo('/dev/ttyUSB1', 'b', True, target='esp32s3'),
         EspPortInfo('/dev/ttyUSB2', 'c', True, target='esp32c3'),
     ]
-    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=ports), mock.patch.object(
-        esp_serial, 'detect_one_port', side_effect=infos
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=ports), \
+        mock.patch.object(esp_serial, 'detect_one_port', side_effect=infos):
         result = get_available_ports('esp32c3')
+    # fmt: on
     assert [p.device for p in result] == ['/dev/ttyUSB0', '/dev/ttyUSB2']
 
-    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=ports), mock.patch.object(
-        esp_serial, 'detect_one_port', side_effect=infos
-    ):
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=ports), \
+        mock.patch.object(esp_serial, 'detect_one_port', side_effect=infos):
         limited = get_available_ports('esp32c3', max_num=1)
+    # fmt: on
     assert [p.device for p in limited] == ['/dev/ttyUSB0']
 
 

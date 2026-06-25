@@ -1,6 +1,5 @@
-import json
-import logging
 import argparse
+import json
 import sys
 from dataclasses import asdict
 
@@ -41,9 +40,12 @@ def main() -> None:
     print('Device           Location     target  version xtal mac                 description')
     for port in list_all_esp_ports():
         if port.support_esptool:
-            print(f'{port.device:16s} {port.location:12s} {port.target:8s} {port.chip_version:8s} {port.mac:20s} {port.chip_description}  {str(port)}')
+            print(
+                f'{port.device:16s} {port.location:12s} {port.target:8s} '
+                f'{port.chip_version:8s} {port.mac:20s} {port.chip_description}  {str(port)}'
+            )
         else:
-            print(f'{port.device:16s} {port.location:12s}  -----  {port.serial_description} [esptool not supported]')
+            print(f'{port.device:16s} {port.location:12s}  -----  {port.serial_description} [not esp port]')
 
 
 if __name__ == '__main__':

@@ -3,7 +3,6 @@ from functools import lru_cache
 
 import esptool
 from packaging.version import Version
-import serial
 from serial.tools.list_ports_common import ListPortInfo
 
 import esptest.common.compat_typing as t
@@ -43,7 +42,7 @@ def _chip_name_to_target(name: str) -> str:
     return 'unknown'
 
 
-def _get_esp_port_info(esp: esptool.ESPLoader) -> dict[str, t.Any]:
+def _get_esp_port_info(esp: esptool.ESPLoader) -> t.Dict[str, t.Any]:
     _info = {}
     _info['chip_name'] = esp.CHIP_NAME
     try:
@@ -92,7 +91,7 @@ def detect_port_info_no_cache(device: str, location: str = '', description: str 
     return EspPortInfo(device, location, _support_esptool, **_info)
 
 
-@lru_cache
+@lru_cache()  # bare @lru_cache is not supported on Python 3.7
 def detect_one_port(port: ListPortInfo) -> EspPortInfo:
     return detect_port_info_no_cache(port.device, port.location, port.description)
 

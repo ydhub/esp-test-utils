@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from queue import Queue
 from typing import Deque, Dict, List
 
@@ -12,7 +12,6 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-import serial
 from serial.tools import list_ports
 
 from ..devices.esp_serial import EspPortInfo, detect_port_info_no_cache
@@ -58,13 +57,13 @@ class Device:
 console = Console()
 devices: Dict[str, Device] = {}
 devices_lock = threading.Lock()
-detect_queue: Queue[Device] = Queue()
+detect_queue: 'Queue[Device]' = Queue()  # queue.Queue is not subscriptable on Python 3.7
 recent_devices: List[Device] = []  # recent connecting devices
 debug_logs: Deque[str] = deque(maxlen=MAX_DEBUG_LOGS)
 debug_logs_lock = threading.Lock()
 
 
-def debug_print(*args, **kwargs) -> None:  # type: ignore
+def debug_print(*args) -> None:  # type: ignore
     """Record debug message for on-screen debug log panel."""
     if not DEBUG:
         return
@@ -87,18 +86,30 @@ def _update_chip_from_port_info(chip: Chip, esp_port: EspPortInfo) -> bool:
     return True
 
 
+async def _detect_port_info(device: Device) -> EspPortInfo:
+    """Run the (blocking) port detection off the event loop.
+
+    Uses ``asyncio.to_thread`` (Python 3.9+) when available; on Python 3.7/3.8
+    it falls back to calling the detection synchronously.
+    """
+    if hasattr(asyncio, 'to_thread'):
+        return await asyncio.to_thread(
+            detect_port_info_no_cache,
+            device.sys_device,
+            device.location,
+            device.description,
+        )
+    # Python 3.7/3.8 fallback: asyncio.to_thread is unavailable, call directly.
+    return detect_port_info_no_cache(device.sys_device, device.location, device.description)
+
+
 async def detect_port_chip(device: Device) -> None:
     """Detect chip info on a serial port with retry."""
     retry = MAX_DETECT_RETRY
     while True:
         esp_port_info = None
         try:
-            esp_port_info = await asyncio.to_thread(
-                detect_port_info_no_cache,
-                device.sys_device,
-                device.location,
-                device.description,
-            )
+            esp_port_info = await _detect_port_info(device)
         except Exception as e:  # pylint: disable=broad-exception-caught
             debug_print(f'{device.sys_device} detect info failed {type(e)}: {str(e)}')
 
@@ -246,6 +257,7 @@ def _add_debug_logs_row() -> None:
         log_table.add_row(Text('(no logs yet)', style='dim italic'))
     console.print(log_table)
 
+
 def display_serial_ports() -> None:
     table = Table(title='Serial Ports', header_style='', box=box.ROUNDED)
     table.add_column('Location', justify='left', min_width=15)
@@ -308,9 +320,7 @@ def display_serial_ports() -> None:
                     mac = Text(device.chip.mac)
                     flash = Text(device.chip.flash)
                     description = Text(device.chip.description)
-                    table.add_row(
-                        location_text, name_text, status_text, target, rev, xtal, mac, flash, description
-                    )
+                    table.add_row(location_text, name_text, status_text, target, rev, xtal, mac, flash, description)
 
     console.clear()
     console.print(table)

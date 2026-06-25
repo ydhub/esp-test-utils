@@ -1,7 +1,12 @@
 import asyncio
+import sys
 from unittest import mock
 
 import pytest
+
+if sys.platform == 'win32':
+    # uart_monitor depends on pyudev (Linux-only; pulls in fcntl), skip on Windows.
+    pytest.skip('uart_monitor requires pyudev which is Linux-only', allow_module_level=True)
 
 from esptest.devices.esp_serial import EspPortInfo
 from esptest.tools import uart_monitor
@@ -106,9 +111,7 @@ def test_refresh_serial_ports_adds_new_device() -> None:
 
 def test_detect_port_chip_updates_chip_on_success() -> None:
     device = _make_device()
-    esp_port = EspPortInfo(
-        '/dev/ttyUSB0', 'loc-a', True, chip_version='v0.4', mac='aa:bb', target='esp32c3'
-    )
+    esp_port = EspPortInfo('/dev/ttyUSB0', 'loc-a', True, chip_version='v0.4', mac='aa:bb', target='esp32c3')
     with mock.patch.object(uart_monitor, 'detect_port_info_no_cache', return_value=esp_port) as detect_mock:
         asyncio.run(uart_monitor.detect_port_chip(device))
 
@@ -121,10 +124,17 @@ def test_detect_port_chip_updates_chip_on_success() -> None:
 def test_detect_port_chip_retries_on_failure() -> None:
     device = _make_device()
     failed = EspPortInfo('/dev/ttyUSB0', 'loc-a', False, serial_description='not esp')
-    with mock.patch.object(uart_monitor, 'detect_port_info_no_cache', return_value=failed) as detect_mock, mock.patch.object(
-        uart_monitor.asyncio, 'sleep', new=mock.AsyncMock()
-    ):
+
+    async def _no_sleep(*_args: object, **_kwargs: object) -> None:
+        # 3.7-compatible replacement for an async sleep (mock.AsyncMock needs 3.8+)
+        return None
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(uart_monitor, 'detect_port_info_no_cache', return_value=failed) as detect_mock, \
+        mock.patch.object(uart_monitor.asyncio, 'sleep', new=_no_sleep):
         asyncio.run(uart_monitor.detect_port_chip(device))
+    # fmt: on
 
     # one initial attempt + MAX_DETECT_RETRY retries
     assert detect_mock.call_count == uart_monitor.MAX_DETECT_RETRY + 1
