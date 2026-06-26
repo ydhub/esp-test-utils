@@ -1,5 +1,6 @@
 import contextlib
 import io
+import threading
 import time
 import warnings
 from functools import wraps
@@ -119,14 +120,29 @@ def deprecated(reason: str = '') -> t.Callable[[GenericFunc], GenericFunc]:
 
 
 def suppress_stdout() -> t.Callable[[GenericFunc], GenericFunc]:
-    """Redirect stdout and stderr to discard output during the decorated function's execution."""
+    """Redirect stdout and stderr to discard output during the decorated function's execution.
+
+    Note:
+        ``contextlib.redirect_stdout/stderr`` swap the process-global ``sys.stdout``/
+        ``sys.stderr``. If the decorated function runs in multiple threads at once
+        (e.g. detecting several ports concurrently via ``asyncio.to_thread``), the
+        threads would clobber each other's redirection and restore the wrong stream.
+        ``_stdout_lock`` prevents this corruption, but as a side effect it serializes
+        all concurrent calls of the decorated function, so they gain no parallelism.
+        If true concurrency is needed, replace the global redirect with a per-thread
+        stdout interception instead of this lock.
+    """
+    _stdout_lock = threading.Lock()
 
     def decorator(func: GenericFunc) -> GenericFunc:
         @wraps(func)
         def wrapper(*args: t.Any, **kwargs: t.Any) -> t.Any:
-            devnull = io.StringIO()
-            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-                return func(*args, **kwargs)
+            # Serialized by _stdout_lock: required for correctness (global stdout swap),
+            # at the cost of running decorated calls one at a time across threads.
+            with _stdout_lock:
+                devnull = io.StringIO()
+                with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                    return func(*args, **kwargs)
 
         return t.cast(GenericFunc, wrapper)
 

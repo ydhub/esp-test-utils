@@ -22,8 +22,13 @@ class EspPortInfo:
     serial_description: str = ''
     chip_name: str = ''
     chip_description: str = ''
-    chip_version: str = ''
     mac: str = ''
+    chip_version: str = ''
+    chip_xtal: str = ''
+    flash_id: str = ''
+    flash_size: str = ''
+    # pid: int = 0
+    # vid: int = 0
     target: str = 'unknown'
 
 
@@ -37,46 +42,58 @@ def _chip_name_to_target(name: str) -> str:
     return 'unknown'
 
 
-def _get_esp_port_info(esp: esptool.ESPLoader) -> dict[str, t.Any]:
+def _get_esp_port_info(esp: esptool.ESPLoader) -> t.Dict[str, t.Any]:
     _info = {}
+    _info['chip_name'] = esp.CHIP_NAME
     try:
-        _info['chip_name'] = esp.CHIP_NAME
         _info['mac'] = ':'.join([f'{i:02x}' for i in esp.read_mac()])
         _info['chip_description'] = esp.get_chip_description()
         _info['chip_version'] = f'v{esp.get_major_chip_version()}.{esp.get_minor_chip_version()}'
+        _info['chip_xtal'] = f'{esp.get_crystal_freq()}'
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error(f'Get esp port info failed {type(e)}: {str(e)}')
+        logger.error(f'[{esp.port}] Get esp port info failed {type(e)}: {str(e)}')
         # do not update _info
+    try:
+        from esptool.cmds import attach_flash, detect_flash_size
+
+        # ROM loader does not enable SPI flash until attach_flash() is called.
+        attach_flash(esp)
+        _info['flash_id'] = hex(esp.flash_id())
+        _info['flash_size'] = detect_flash_size(esp)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error(f'[{esp.port}] Detect flash info failed {type(e)}: {str(e)}')
+        # ignore update _info
     _info['target'] = _chip_name_to_target(_info['chip_name'])
     return _info
 
 
-@lru_cache
 @suppress_stdout()
-def detect_one_port(port: ListPortInfo) -> EspPortInfo:
-    if not port:
-        raise ValueError('detect port "port" not be given')
-    _device = port.device
-    _location = port.location or ''
-    _info = {'serial_description': port.description or ''}
+def detect_port_info_no_cache(device: str, location: str = '', description: str = '') -> EspPortInfo:
+    _info = {'serial_description': description or ''}
     _support_esptool = True
     try:
         if Version(esptool.__version__) > Version('4.8.dev3'):
             # Newer esptool supports context manager
-            with esptool.detect_chip(_device) as esp:
+            with esptool.detect_chip(device) as esp:
                 _info = _get_esp_port_info(esp)
                 esp.hard_reset()
         else:
             # old esptool <= 4.7
-            esp = esptool.detect_chip(_device)
+            esp = esptool.detect_chip(device)
             _info = _get_esp_port_info(esp)
             esp.hard_reset()
             esp._port.close()  # pylint: disable=protected-access
-        logger.info(f'Auto-Detect chip {_device}: {_info}')
-    except esptool.util.FatalError:
-        logger.warning(f'Detect {port} does not support esptool, may not be an esp port!')
+        logger.info(f'Auto-Detect chip {device}: {_info}')
+    except esptool.util.FatalError as e:
+        logger.warning(f'Detect {device} via esptool failed {type(e)}: {str(e)}')
+        _info['chip_description'] = f'esptool {type(e)}: {str(e)}'
         _support_esptool = False
-    return EspPortInfo(_device, _location, _support_esptool, **_info)
+    return EspPortInfo(device, location, _support_esptool, **_info)
+
+
+@lru_cache()  # bare @lru_cache is not supported on Python 3.7
+def detect_one_port(port: ListPortInfo) -> EspPortInfo:
+    return detect_port_info_no_cache(port.device, port.location, port.description)
 
 
 def list_all_esp_ports() -> t.List[EspPortInfo]:
