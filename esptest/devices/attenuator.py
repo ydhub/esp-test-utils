@@ -63,7 +63,7 @@ class AttDevice:
     @property
     def max(self) -> float:
         return {
-            AttType.MINI_CIRCUITS: 95,
+            AttType.MINI_CIRCUITS: 92,
             AttType.WUYOU: 92,
             AttType.RIDGESTONE: 62,
             AttType.FUTURE_TECHNOLOGY: 62,
