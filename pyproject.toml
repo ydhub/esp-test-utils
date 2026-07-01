@@ -5,7 +5,7 @@
 [tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
-include = ["esptest"]
+include = ["esptest", "esptest.*"]
 
 [project]
     authors = [
@@ -91,6 +91,7 @@ include = ["esptest"]
     [project.scripts]
         esp-setatt = "esptest.scripts.set_att:main"
         esp-relay = "esptest.scripts.relay:main"
+        esp-uhubctl = "esptest.scripts.uhubctl:cli"
         esp-tempbox = "esptest.scripts.tempbox:main"
         esp-listports = "esptest.scripts.list_ports:main"
         esp-monitor = "esptest.scripts.monitor:main"
