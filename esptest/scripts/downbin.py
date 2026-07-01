@@ -13,6 +13,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Download bin', usage=usage_string)
     parser.add_argument('bin_path', type=str, nargs='?', help='esp bin path, default ./build')
     parser.add_argument('-p', '--ports', type=str, nargs='*', help='download port list')
+    parser.add_argument('-b', '--baudrate', type=int, default=0, help='download baudrate')
     parser.add_argument(
         '--range', type=str, help='port list from range (linux), eg: "0-10" equals to "-p ttyUSB0 ttyUSB1 ... ttyUSB10"'
     )
@@ -56,7 +57,15 @@ def main() -> None:
     assert isinstance(ports, list)
 
     try:
-        download_bin_to_ports(bin_path, ports, args.erase_nvs, args.max_workers, args.force_no_stub, args.check_no_stub)
+        download_bin_to_ports(
+            bin_path,
+            ports,
+            args.erase_nvs,
+            max_workers=args.max_workers,
+            force_no_stub=args.force_no_stub,
+            check_no_stub=args.check_no_stub,
+            baud=args.baudrate,
+        )
     except RuntimeError as e:
         logging.error(str(e))
         sys.exit(1)
