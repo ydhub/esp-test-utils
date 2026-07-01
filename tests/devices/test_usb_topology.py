@@ -1,4 +1,7 @@
+import sys
 from pathlib import Path
+
+import pytest
 
 from esptest.devices import usb_topology
 from esptest.devices.usb_topology import (
@@ -7,6 +10,8 @@ from esptest.devices.usb_topology import (
     parse_device_name,
     scan_usb,
 )
+
+pytestmark = pytest.mark.skipif(sys.platform == 'win32', reason='USB sysfs topology is Linux-specific')
 
 
 def _write(path: Path, **fields: str) -> None:
