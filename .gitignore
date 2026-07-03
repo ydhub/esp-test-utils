@@ -1,5 +1,6 @@
 .vscode/
 venv/
+.cursor/
 
 __pycache__/
 .mypy_cache/
