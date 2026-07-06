@@ -6,19 +6,20 @@ from unittest import mock
 
 import pytest
 
+import esptest.common.timestamp as timestamp_module
 from esptest.common.encoding import to_bytes, to_str
 from esptest.common.generator import get_next_index
 from esptest.common.shell import RunCmdError, run_cmd
 from esptest.common.timestamp import timestamp_slug, timestamp_str
 
 
-@mock.patch('esptest.common.timestamp.datetime')
-def test_timestamp(patch_datetime: mock.Mock) -> None:
-    patch_datetime.now.return_value = datetime(2025, 7, 1, 10, 1, 2, 100)
-    s = timestamp_str()
-    assert s == '2025-07-01 10:01:02.000100'
-    s = timestamp_slug()
-    assert s == '2025-07-01__10-01-02_000100'
+def test_timestamp() -> None:
+    with mock.patch.object(timestamp_module, 'datetime') as patch_datetime:
+        patch_datetime.now.return_value = datetime(2025, 7, 1, 10, 1, 2, 100)
+        s = timestamp_str()
+        assert s == '2025-07-01 10:01:02.000100'
+        s = timestamp_slug()
+        assert s == '2025-07-01__10-01-02_000100'
 
 
 def test_get_next_index() -> None:
