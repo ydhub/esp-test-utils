@@ -1,7 +1,40 @@
+import os
 import re
 import string
+from functools import lru_cache
+from typing import Mapping, Match
 
 import esptest.common.compat_typing as t
+
+from ..logger import get_logger
+
+logger = get_logger(__name__)
+
+_ENV_VAR_PATTERN = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
+
+
+@lru_cache()
+def _log_env_var_replacement_once(var_name: str, value: str) -> None:
+    logger.info(f'Replace environment variable `{var_name}` -> `{value}`')
+
+
+def expand_env_vars(data: str, env: t.Optional[Mapping[str, str]] = None) -> str:
+    """Expand environment variables in ``${VAR_NAME}`` form.
+
+    Only braced environment variables are expanded. Missing variables raise
+    ``KeyError`` from the selected environment mapping.
+    """
+    env_vars = os.environ if env is None else env
+
+    def replace(match: Match[str]) -> str:
+        var_name = match.group(1)
+        if var_name in env_vars:
+            value = env_vars[var_name]
+            _log_env_var_replacement_once(var_name, value)
+            return value
+        raise KeyError(f'Environment variable `{var_name}` is not defined')
+
+    return _ENV_VAR_PATTERN.sub(replace, data)
 
 
 def _optional_int(value: t.Optional[str]) -> t.Optional[int]:

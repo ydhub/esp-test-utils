@@ -1,6 +1,81 @@
+from unittest import mock
+
 import pytest
 
 from esptest.common.parser import expand_to_list, parse_param_idx
+
+
+def test_expand_env_vars_expands_braced_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    from esptest.common import expand_env_vars
+
+    monkeypatch.setenv('ESPTEST_BIN_DIR', '/tmp/bin')
+
+    assert expand_env_vars('${ESPTEST_BIN_DIR}/app.bin') == '/tmp/bin/app.bin'
+
+
+def test_expand_env_vars_uses_given_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from esptest.common import expand_env_vars
+
+    monkeypatch.setenv('ESPTEST_BIN_DIR', '/tmp/bin')
+
+    assert (
+        expand_env_vars(
+            '${ESPTEST_BIN_DIR}/app.bin',
+            env={'ESPTEST_BIN_DIR': '/custom/bin'},
+        )
+        == '/custom/bin/app.bin'
+    )
+
+
+def test_expand_env_vars_logs_same_replacement_once() -> None:
+    from esptest.common import expand_env_vars, parser
+
+    parser._log_env_var_replacement_once.cache_clear()  # pylint: disable=protected-access
+    with mock.patch.object(parser.logger, 'info') as logger_info:
+        assert (
+            expand_env_vars(
+                '${ESPTEST_BIN_DIR}/${ESPTEST_BIN_DIR}/${ESPTEST_LOG_DIR}/${ESPTEST_LOG_DIR}',
+                env={'ESPTEST_BIN_DIR': '/custom/bin', 'ESPTEST_LOG_DIR': '/custom/log'},
+            )
+            == '/custom/bin//custom/bin//custom/log//custom/log'
+        )
+
+        logger_info.assert_any_call('Replace environment variable `ESPTEST_BIN_DIR` -> `/custom/bin`')
+        logger_info.assert_any_call('Replace environment variable `ESPTEST_LOG_DIR` -> `/custom/log`')
+        assert logger_info.call_count == 2
+
+
+def test_expand_env_vars_logs_same_replacement_once_across_calls() -> None:
+    from esptest.common import expand_env_vars, parser
+
+    parser._log_env_var_replacement_once.cache_clear()  # pylint: disable=protected-access
+    with mock.patch.object(parser.logger, 'info') as logger_info:
+        assert expand_env_vars('${ESPTEST_CACHE_DIR}', env={'ESPTEST_CACHE_DIR': '/custom/cache'}) == '/custom/cache'
+        assert expand_env_vars('${ESPTEST_CACHE_DIR}', env={'ESPTEST_CACHE_DIR': '/custom/cache'}) == '/custom/cache'
+
+        logger_info.assert_called_once_with('Replace environment variable `ESPTEST_CACHE_DIR` -> `/custom/cache`')
+
+
+def test_expand_env_vars_ignores_unbraced_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    from esptest.common import expand_env_vars
+
+    monkeypatch.setenv('ESPTEST_BIN_DIR', '/tmp/bin')
+
+    assert expand_env_vars('$ESPTEST_BIN_DIR/${ESPTEST_BIN_DIR}') == '$ESPTEST_BIN_DIR//tmp/bin'
+
+
+def test_expand_env_vars_raises_for_missing_variables() -> None:
+    from esptest.common import expand_env_vars
+
+    with pytest.raises(KeyError, match='Environment variable `ESPTEST_MISSING_BIN_DIR` is not defined'):
+        expand_env_vars('${ESPTEST_MISSING_BIN_DIR}/app.bin')
+
+
+def test_expand_env_vars_raises_for_missing_variables_in_given_env() -> None:
+    from esptest.common import expand_env_vars
+
+    with pytest.raises(KeyError, match='Environment variable `ESPTEST_MISSING_BIN_DIR` is not defined'):
+        expand_env_vars('${ESPTEST_MISSING_BIN_DIR}/app.bin', env={})
 
 
 def test_parse_param_idx_invalid_input() -> None:
@@ -81,11 +156,6 @@ def test_parse_param_idx_slice_without_max_len_when_self_contained() -> None:
     assert parse_param_idx('1', None) == [1]
 
 
-# ----------------------------------------------
-# parse list strings
-# ----------------------------------------------
-
-
 def test_expand_to_list_string_list() -> None:
     assert expand_to_list('a,b,c') == ['a', 'b', 'c']
     assert expand_to_list('a1,b2,c3') == ['a1', 'b2', 'c3']
@@ -99,8 +169,3 @@ def test_expand_to_list_string_list() -> None:
         expand_to_list('-1')
     with pytest.raises(ValueError, match='format error'):
         expand_to_list('%')
-
-
-if __name__ == '__main__':
-    # Breakpoints do not work with coverage, disable coverage for debugging
-    pytest.main([__file__, '--no-cov', '--log-cli-level=DEBUG'])
