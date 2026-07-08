@@ -1,3 +1,18 @@
+## v0.5.0 (2026-07-08)
+
+
+- feat: add xunit report example and parse result details
+- feat: add testcase result dataclasses and xUnit XML helper
+- feat: add att range limit, add fix rate report
+- feat: add timezone-aware ISO timestamp and parse_timestamp helpers
+- feat: add version limit range utilities
+- feat: add environment variable expansion helper
+- feat: add notification helpers
+- feat: add USB hub control script
+- feat: add baudrate option to downbin
+- fix: restore Python 3.7 compatibility for port detection
+- feat: detect esp port info via esptool API with flash/xtal & json output
+
 ## v0.4.1 (2026-06-05)
 
 
