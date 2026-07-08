@@ -34,6 +34,9 @@ class ResultDetail:
     brief_message: str = ''
     started_at: t.Optional[str] = None
     finished_at: t.Optional[str] = None
+    # Relative path (to the report/log directory) of the file this detail was saved
+    # to. Kept out of ``to_dict`` because it is location metadata, not DB content.
+    file: str = ''
 
     def to_dict(self) -> t.Dict[str, Any]:
         return {
@@ -166,7 +169,23 @@ class TestCaseResult:
     properties: t.Dict[str, str] = field(default_factory=dict)
     logs: t.Optional[t.List[t.Dict[str, Any]]] = None
     result_detail_files: t.List[str] = field(default_factory=list)
+    result_details: t.List[ResultDetail] = field(default_factory=list)
     started_at: t.Optional[str] = None
+
+    def add_result_detail(self, detail: ResultDetail, file_name: str = '') -> ResultDetail:
+        """Attach a :class:`ResultDetail` object directly to this case.
+
+        The object is kept in ``result_details`` (in memory). When ``file_name`` (a
+        path relative to the report/log directory) is given, it is stored on the
+        detail (``detail.file``) and appended to ``result_detail_files`` so the
+        report can reference the saved file. Writing the file itself is left to the
+        caller (e.g. ``detail.save_json``). Returns the same object for chaining.
+        """
+        if file_name:
+            detail.file = file_name
+            self.result_detail_files.append(file_name)
+        self.result_details.append(detail)
+        return detail
 
 
 @dataclass

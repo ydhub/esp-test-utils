@@ -87,6 +87,35 @@ def test_test_case_result_uses_result_detail_files() -> None:
     ]
 
 
+def test_test_case_result_add_result_detail_links_object() -> None:
+    case = TestCaseResult(name='test_tcp_tx')
+    detail = ResultDetail(
+        type='throughput',
+        result={'throughput_mbps': 94.2},
+    )
+
+    returned = case.add_result_detail(detail)
+
+    assert returned is detail
+    assert case.result_details == [detail]
+    # without a file name nothing is added to result_detail_files
+    assert case.result_detail_files == []
+    assert detail.file == ''
+
+
+def test_test_case_result_add_result_detail_stores_relative_file_name() -> None:
+    case = TestCaseResult(name='test_tcp_tx')
+    detail = ResultDetail(type='throughput', result={'throughput_mbps': 94.2})
+
+    case.add_result_detail(detail, file_name='result_details/test_tcp_tx.json')
+
+    # the relative path is stored both on the detail and in result_detail_files
+    assert detail.file == 'result_details/test_tcp_tx.json'
+    assert case.result_detail_files == ['result_details/test_tcp_tx.json']
+    # file is location metadata and must not leak into the DB content dict
+    assert 'file' not in detail.to_dict()
+
+
 def test_test_suites_result_aggregates_nested_case_counts() -> None:
     suites = TestSuitesResult(
         name='all-tests',

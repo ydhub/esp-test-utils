@@ -253,6 +253,59 @@ def test_xunit_logger_close_marks_running_case_interrupted(tmp_path: Path) -> No
     assert logger.has_running_case is False
 
 
+def test_parse_xunit_xml_auto_loads_result_details(tmp_path: Path) -> None:
+    from esptest.testcase.result import ResultDetail
+
+    detail_rel = 'result_details/test_tcp_tx.json'
+    detail = ResultDetail(type='throughput', result={'throughput_mbps': 94.2})
+    detail.save_json(tmp_path / detail_rel)
+
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_tcp_tx', classname='iperf.tcp')
+    assert logger.running_case is not None
+    logger.running_case.add_result_detail(detail, file_name=detail_rel)
+    saved_path = logger.end_case()
+
+    case = parse_xunit_xml(saved_path).test_suites[0].test_cases[0]
+    assert case.result_detail_files == [detail_rel]
+    assert len(case.result_details) == 1
+    assert case.result_details[0].type == 'throughput'
+    assert case.result_details[0].result == {'throughput_mbps': 94.2}
+    assert case.result_details[0].file == detail_rel
+
+
+def test_parse_xunit_xml_skips_result_details_for_xml_string() -> None:
+    # parsing an in-memory string has no base dir, so files cannot be resolved
+    xml_text = (
+        '<testsuites name="root" tests="1" failures="0" errors="0" skipped="0" time="0">'
+        '<testsuite name="iperf" tests="1" failures="0" errors="0" skipped="0" time="0">'
+        '<testcase name="test_tcp_tx"><properties>'
+        '<property name="result_detail_files" value="[&quot;result_details/x.json&quot;]" />'
+        '</properties></testcase></testsuite></testsuites>'
+    )
+
+    case = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert case.result_detail_files == ['result_details/x.json']
+    assert case.result_details == []
+
+
+def test_parse_xunit_xml_can_disable_result_detail_loading(tmp_path: Path) -> None:
+    from esptest.testcase.result import ResultDetail
+
+    detail_rel = 'result_details/test_tcp_tx.json'
+    ResultDetail(type='throughput', result={'throughput_mbps': 94.2}).save_json(tmp_path / detail_rel)
+
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_tcp_tx')
+    assert logger.running_case is not None
+    logger.running_case.result_detail_files.append(detail_rel)
+    saved_path = logger.end_case()
+
+    case = parse_xunit_xml(saved_path, load_result_details=False).test_suites[0].test_cases[0]
+    assert case.result_detail_files == [detail_rel]
+    assert case.result_details == []
+
+
 def test_generate_xunit_xml_sanitizes_invalid_control_characters() -> None:
     # ANSI escape, NUL, bell, form-feed and vertical tab are common in serial logs
     # but are invalid in XML 1.0; they must not break serialize/parse round trips.

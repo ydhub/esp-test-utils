@@ -24,7 +24,7 @@ Package `esp-test-utils` is published to PyPI. Please install it via `pip`.
   All serial ports on this computer:0
     port: /dev/ttyUSB0, location: 1-11.4.1
   ```
-- See more examples under [examples](https://github.com/espressif/pytest-embedded/tree/main/examples)
+- See more examples under [examples](https://github.com/ydhub/esp-test-utils/tree/main/example)
 
 ## Contributing
 

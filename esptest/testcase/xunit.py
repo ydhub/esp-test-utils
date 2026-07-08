@@ -1,5 +1,6 @@
 import functools
 import json
+import logging
 import os
 import platform
 import threading
@@ -10,7 +11,9 @@ from pathlib import Path
 
 import esptest.common.compat_typing as t
 
-from .result import TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
+from .result import ResultDetail, TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
+
+logger = logging.getLogger(__name__)
 
 _MethodT = t.TypeVar('_MethodT', bound=t.Callable[..., t.Any])
 
@@ -312,7 +315,27 @@ def _find_text(parent: ET.Element, tag: str) -> t.Optional[str]:
     return elem.text
 
 
-def _parse_test_case(testcase_elem: ET.Element) -> TestCaseResult:
+def _load_result_details(result_detail_files: t.List[str], base_dir: t.Optional[Path]) -> t.List[ResultDetail]:
+    """Load referenced ``.json`` detail files (relative to ``base_dir``) into
+    ResultDetail objects. Missing / unreadable / non-json files are skipped so a
+    partially-available report still parses."""
+    details: t.List[ResultDetail] = []
+    if base_dir is None:
+        return details
+    for rel_path in result_detail_files:
+        if not str(rel_path).lower().endswith('.json'):
+            continue
+        try:
+            detail = ResultDetail.load_json(base_dir / rel_path)
+        except (OSError, ValueError) as err:
+            logger.warning('Failed to load result detail file %s: %s', rel_path, err)
+            continue
+        detail.file = rel_path
+        details.append(detail)
+    return details
+
+
+def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestCaseResult:
     properties = _parse_properties(testcase_elem)
     result_detail_files = _pop_json_property(properties, 'result_detail_files') or []
     logs = _pop_json_property(properties, 'logs')
@@ -330,14 +353,15 @@ def _parse_test_case(testcase_elem: ET.Element) -> TestCaseResult:
         properties=properties,
         logs=logs,
         result_detail_files=result_detail_files,
+        result_details=_load_result_details(result_detail_files, base_dir),
         started_at=started_at,
     )
 
 
-def _parse_test_suite(testsuite_elem: ET.Element) -> TestSuiteResult:
+def _parse_test_suite(testsuite_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestSuiteResult:
     return TestSuiteResult(
         name=testsuite_elem.get('name', ''),
-        test_cases=[_parse_test_case(elem) for elem in testsuite_elem.findall('testcase')],
+        test_cases=[_parse_test_case(elem, base_dir) for elem in testsuite_elem.findall('testcase')],
         properties=_parse_properties(testsuite_elem),
         timestamp=testsuite_elem.get('timestamp'),
         package=testsuite_elem.get('package'),
@@ -355,16 +379,34 @@ def _load_root(xml_or_path: t.Union[str, Path]) -> ET.Element:
     return ET.parse(xml_text).getroot()
 
 
-def parse_xunit_xml(xml_or_path: t.Union[str, Path]) -> TestSuitesResult:
+def _resolve_base_dir(xml_or_path: t.Union[str, Path], base_dir: t.Optional[t.Union[str, Path]]) -> t.Optional[Path]:
+    """Directory used to resolve relative result_detail_files. Falls back to the
+    parent of the report file; returns None when parsing an in-memory XML string."""
+    if base_dir is not None:
+        return Path(base_dir)
+    if isinstance(xml_or_path, Path):
+        return xml_or_path.parent
+    xml_text = str(xml_or_path)
+    if xml_text.lstrip().startswith('<'):
+        return None
+    return Path(xml_text).parent
+
+
+def parse_xunit_xml(
+    xml_or_path: t.Union[str, Path],
+    base_dir: t.Optional[t.Union[str, Path]] = None,
+    load_result_details: bool = True,
+) -> TestSuitesResult:
     root = _load_root(xml_or_path)
+    resolved_base = _resolve_base_dir(xml_or_path, base_dir) if load_result_details else None
     if root.tag == 'testsuite':
-        return TestSuitesResult(test_suites=[_parse_test_suite(root)])
+        return TestSuitesResult(test_suites=[_parse_test_suite(root, resolved_base)])
     if root.tag != 'testsuites':
         raise ValueError(f'Unsupported xUnit root element: {root.tag}')
 
     return TestSuitesResult(
         name=root.get('name', 'testsuites'),
-        test_suites=[_parse_test_suite(elem) for elem in root.findall('testsuite')],
+        test_suites=[_parse_test_suite(elem, resolved_base) for elem in root.findall('testsuite')],
         properties=_parse_properties(root),
     )
 
