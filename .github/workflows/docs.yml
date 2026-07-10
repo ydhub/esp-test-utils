@@ -2,7 +2,7 @@ name: Docs
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/add_docs]
   pull_request:
 
 permissions:
@@ -16,26 +16,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # setuptools-scm needs the full history/tags to derive the version.
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install doc dependencies
         run: pip install -e '.[doc]'
       - name: Build HTML docs
         run: make -C docs html
+      - name: Disable Jekyll processing
+        # Ensures Pages serves Sphinx's underscore-prefixed dirs (_static, _sources).
+        run: touch docs/_build/html/.nojekyll
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/_build/html
 
   deploy:
-    # Only publish from the default branch.
-    if: github.ref == 'refs/heads/main'
+    # Publish from the default branch (and feat/add_docs for pre-merge preview).
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/add_docs'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -47,4 +50,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

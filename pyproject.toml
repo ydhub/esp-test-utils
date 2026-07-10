@@ -103,7 +103,7 @@ include = ["esptest", "esptest.*"]
 
     [project.urls]
         Homepage = "https://github.com/ydhub/esp-test-utils"
-        Documentation = "https://esp-test-utils.readthedocs.io"
+        Documentation = "https://esp-test-utils.readthedocs.io/en/latest/"
         Repository = "https://github.com/ydhub/esp-test-utils.git"
         Issues = "https://github.com/ydhub/esp-test-utils/issues"
         Changelog = "https://github.com/ydhub/esp-test-utils/blob/main/CHANGELOG.md"
