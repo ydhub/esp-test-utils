@@ -12,11 +12,12 @@ class VersionLimit:
     Represent a set of supported versions as one or more ranges.
 
     Supported string formats:
+
     - ``v1.0`` means ``v1.0`` to unlimited.
     - Patch or multi-part versions are supported, for example ``v1.0.1`` and ``v1.0.0-v2.0.3``.
     - ``v1.0-v2.0`` means the closed range ``[v1.0, v2.0]``.
-    - ``[v1.0-v2.0)``, ``(v1.0-v2.0]``, and ``(v1.0-v2.0)`` express open/closed boundaries.
-      For example, ``(v3.0-v4.0]`` excludes ``v3.0`` and ``v3.0.0``, but includes ``v3.0.1``.
+    - ``[v1.0-v2.0)``, ``(v1.0-v2.0]``, and ``(v1.0-v2.0)`` express open/closed boundaries;
+      for example, ``(v3.0-v4.0]`` excludes ``v3.0`` and ``v3.0.0``, but includes ``v3.0.1``.
     - ``(v1.0-)`` means versions greater than ``v1.0`` to unlimited.
     - Use ``;`` to combine multiple ranges, for example ``v1.0-v2.0; v4.0``.
 

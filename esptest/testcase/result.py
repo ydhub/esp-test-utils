@@ -14,15 +14,15 @@ class ResultDetail:
     Each accumulated record corresponds to one ``TestResultDetail`` database row
     and can be dumped as JSON / JSONL for batch import into the database.
 
-    Database schema (TestResultDetail) that records target::
-        - params:        dict[str, Any]           (JSONB, required)
-        - result:        dict[str, Any]           (JSONB, required)
-        - duration:      int | None
-        - logs:          list[dict[str, Any]] | None
-        - brief_message: str | None
-        - started_at:    datetime | None
-        - finished_at:   datetime | None
-    ::
+    Database schema (``TestResultDetail``) that records the target::
+
+        params:        dict[str, Any]           (JSONB, required)
+        result:        dict[str, Any]           (JSONB, required)
+        duration:      int | None
+        logs:          list[dict[str, Any]] | None
+        brief_message: str | None
+        started_at:    datetime | None
+        finished_at:   datetime | None
     """
 
     __test__ = False

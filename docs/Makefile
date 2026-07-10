@@ -7,6 +7,7 @@ SPHINXOPTS    ?=
 SPHINXBUILD   ?= sphinx-build
 SPHINXAPI     = sphinx-apidoc
 SPHINXAPISRC  = ../esptest
+SPHINXAPIOUT  = api/_generated
 SOURCEDIR     = .
 BUILDDIR      = _build
 
@@ -14,10 +15,16 @@ BUILDDIR      = _build
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help Makefile
+.PHONY: help apidoc clean Makefile
+
+# Regenerate the auto API stubs from docstrings.
+apidoc:
+	@$(SPHINXAPI) --force --separate --module-first -o "$(SPHINXAPIOUT)" "$(SPHINXAPISRC)"
+
+clean:
+	@rm -rf "$(BUILDDIR)" "$(SPHINXAPIOUT)"
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
-%: Makefile
-	@$(SPHINXAPI) -o $(SOURCEDIR) $(SPHINXAPISRC)
+%: Makefile apidoc
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)

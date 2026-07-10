@@ -73,7 +73,7 @@ def find_port_line(output: str, hub: str, port: str) -> str:
     """Return the ``Port <port>:`` status line that belongs to ``hub``.
 
     uhubctl may list several hubs (e.g. the USB2 and USB3 companion) so we only
-    look at lines under the requested ``Current status for hub <hub> `` header.
+    look at lines under the requested ``Current status for hub <hub>`` header.
     """
     in_requested_hub = False
     for line in output.splitlines():

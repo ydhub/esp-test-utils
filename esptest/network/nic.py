@@ -178,7 +178,7 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
         run_cmd(args)
 
     def set_channel(self, channel: int, bw: str = '') -> None:
-        """Start wifi nic channel, bw can be [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz]"""
+        """Start wifi nic channel, bw can be ``[NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz]``"""
         args = ['sudo', 'iw', 'dev', self.iface, 'set', 'channel', str(channel)]
         if bw:
             args += [bw]
@@ -215,7 +215,7 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
 
         Args:
             channel (int): monitor channel to set
-            bw (str, optional): [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz]. Defaults to 'HT20'.
+            bw (str, optional): ``[NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz]``. Defaults to 'HT20'.
         """
         # AX200 sometime set monitor mode failed if wpa_supplicant process is running
         self.kill_wpa_supplicant()

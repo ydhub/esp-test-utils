@@ -85,7 +85,7 @@ def parse_timestamp(text: str, fmt: str = '') -> datetime:
 
 
 def timestamp_slug(fmt: str = '', dt: t.Optional[datetime] = None) -> str:
-    """Similar to timestamp_str but only include [0-9a-zA-Z_-]
+    """Similar to timestamp_str but only include ``[0-9a-zA-Z_-]``.
 
     Returns:
         str: time stamp string
