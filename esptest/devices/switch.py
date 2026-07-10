@@ -112,14 +112,18 @@ class PoolInfo:
 
     @classmethod
     def parse_pool_info(cls, output: str) -> 'PoolInfo':
-        """Pool name: 111
-        Network: 10.0.0.0 mask 255.255.254.0
-        dns-list 8.8.8.8 114.114.114.114
-        expired day 1 hour 0 minute 0 second 0
-        gateway-list 10.0.0.1
-        static bindings:
-            ip-address 10.0.0.10 mask 255.255.254.0
-            hardware-address 1122-3344-aabb ethernet
+        """Parse the ``display ip pool`` output into a :class:`PoolInfo`.
+
+        Example input::
+
+            Pool name: 111
+            Network: 10.0.0.0 mask 255.255.254.0
+            dns-list 8.8.8.8 114.114.114.114
+            expired day 1 hour 0 minute 0 second 0
+            gateway-list 10.0.0.1
+            static bindings:
+                ip-address 10.0.0.10 mask 255.255.254.0
+                hardware-address 1122-3344-aabb ethernet
         """
         match = re.search(r'Pool name:\s*(\w+)', output)
         assert match, f'Failed to parse pool name from output: {output}'

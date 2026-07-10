@@ -79,6 +79,7 @@ include = ["esptest", "esptest.*"]
         doc = [
             "sphinx~=7.0",
             "sphinx_rtd_theme~=2.0",
+            "myst-parser~=2.0",
         ]
         test = [
             "pytest-cov~=4.1",
@@ -102,7 +103,7 @@ include = ["esptest", "esptest.*"]
 
     [project.urls]
         Homepage = "https://github.com/ydhub/esp-test-utils"
-        # Documentation = "https://readthedocs.org"
+        Documentation = "https://esp-test-utils.readthedocs.io"
         Repository = "https://github.com/ydhub/esp-test-utils.git"
         Issues = "https://github.com/ydhub/esp-test-utils/issues"
         Changelog = "https://github.com/ydhub/esp-test-utils/blob/main/CHANGELOG.md"

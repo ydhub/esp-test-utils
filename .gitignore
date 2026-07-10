@@ -28,6 +28,5 @@ xunit_report/
 
 
 # docs
-/docs/*.rst
 /docs/_build/
-!/docs/index.rst
+/docs/api/_generated/
