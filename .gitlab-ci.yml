@@ -27,6 +27,22 @@ pre-commit-check:
   tags:
     - pre-commit
 
+preview-changelog:
+  stage: pre-check
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - git config --global user.email "ci@example.com"
+    - git config --global user.name "CI"
+  script:
+    - pip install -e '.[dev]'
+    - pip install python-gitlab
+    - git fetch --tags --force
+    - python tools/ci/preview_changelog.py
+  tags:
+    - host_test
+
 # ------------------------------------------------------------------------------------------------------
 # Pytest
 # ------------------------------------------------------------------------------------------------------

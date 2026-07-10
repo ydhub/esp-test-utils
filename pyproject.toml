@@ -65,7 +65,8 @@ include = ["esptest", "esptest.*"]
             "pylint==2.17.5"
         ]
         dev = [
-            "commitizen~=3.10.1",
+            # --get-next needs >=3.29; with update_changelog_on_bump, need >=4.1.1
+            "commitizen>=4.1.1,<5",
             "pip-tools~=7.3",
             "pytest-cov~=4.1.0",
             "pytest~=7.4.0"
@@ -168,6 +169,7 @@ include = ["esptest", "esptest.*"]
     bump_message             = "ci(bump-version): bump release version to v$new_version"
     name                     = "cz_customize"
     tag_format               = "v$version"
+    template                 = "cz_changelog.md.j2"
     update_changelog_on_bump = true
     version_provider         = "scm"
     [tool.commitizen.customize]
