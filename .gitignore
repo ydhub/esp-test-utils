@@ -2,6 +2,7 @@
 venv/
 venv*/
 .cursor/
+.worktrees/
 
 __pycache__/
 .mypy_cache/
