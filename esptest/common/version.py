@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 from typing import List, Optional, Tuple, Union
 
 from packaging.version import Version
@@ -307,3 +308,33 @@ class VersionLimit:
         left_boundary = '[' if min_inclusive else '('
         right_boundary = ']' if max_inclusive else ')'
         return f'{left_boundary}v{min_version}-v{max_version}{right_boundary}'
+
+
+@lru_cache(maxsize=1024)
+def version_contains(version: str, excepted_ver: str) -> bool:
+    """Return whether ``excepted_ver`` is contained in the version-limit string ``version``.
+
+    ``version`` uses the same formats as :class:`VersionLimit`. Raises ``ValueError`` if
+    ``version`` cannot be parsed.
+    """
+    return VersionLimit(version).contains(excepted_ver)
+
+
+@lru_cache(maxsize=1024)
+def version_intersect(left: str, right: str) -> str:
+    """Return the intersection of two version-limit strings as a normalized string.
+
+    Returns ``'<empty>'`` when the ranges do not overlap, or ``''`` when the result
+    matches all versions. Raises ``ValueError`` if either argument cannot be parsed.
+    """
+    return str(VersionLimit(left) & VersionLimit(right))
+
+
+@lru_cache(maxsize=1024)
+def version_union(left: str, right: str) -> str:
+    """Return the union of two version-limit strings as a normalized string.
+
+    Overlapping or adjacent ranges are merged. Returns ``''`` when the result matches
+    all versions. Raises ``ValueError`` if either argument cannot be parsed.
+    """
+    return str(VersionLimit(left) | VersionLimit(right))

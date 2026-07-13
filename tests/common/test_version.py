@@ -1,6 +1,6 @@
 import pytest
 
-from esptest.common.version import VersionLimit
+from esptest.common.version import VersionLimit, version_contains, version_intersect, version_union
 
 
 def test_version_limit_parses_open_ended_version() -> None:
@@ -243,3 +243,64 @@ def test_version_limit_remove_all() -> None:
     assert not limit.contains('v1.0')
     assert not limit.contains('v1.5')
     assert not limit.contains('v2.0')
+
+
+def test_version_contains_in_closed_range() -> None:
+    assert version_contains('v1.0-v2.0', 'v1.0')
+    assert version_contains('v1.0-v2.0', 'v1.5')
+    assert version_contains('v1.0-v2.0', 'v2.0')
+    assert not version_contains('v1.0-v2.0', 'v0.9')
+    assert not version_contains('v1.0-v2.0', 'v2.1')
+
+
+def test_version_contains_open_ended_limit() -> None:
+    assert version_contains('v1.0', 'v1.0')
+    assert version_contains('v1.0', 'v9.0')
+    assert not version_contains('v1.0', 'v0.9')
+
+
+def test_version_contains_half_open_boundary() -> None:
+    assert not version_contains('[v1.0-v2.0)', 'v2.0')
+    assert version_contains('[v1.0-v2.0)', 'v1.9')
+    assert not version_contains('(v1.0-v2.0]', 'v1.0')
+    assert version_contains('(v1.0-v2.0]', 'v1.0.1')
+
+
+def test_version_contains_match_all_and_empty() -> None:
+    assert version_contains('', 'v0.0')
+    assert version_contains('', 'v999.0')
+    assert not version_contains('<empty>', 'v1.0')
+
+
+def test_version_contains_cache_hits() -> None:
+    version_contains.cache_clear()
+    try:
+        assert version_contains('v1.0-v2.0', 'v1.5')
+        assert version_contains.cache_info().hits == 0
+        assert version_contains.cache_info().misses == 1
+
+        assert version_contains('v1.0-v2.0', 'v1.5')
+        assert version_contains.cache_info().hits == 1
+        assert version_contains.cache_info().misses == 1
+    finally:
+        version_contains.cache_clear()
+
+
+def test_version_intersect_overlapping_ranges() -> None:
+    assert version_intersect('v1.0-v3.0', 'v2.0-v4.0') == 'v2.0-v3.0'
+
+
+def test_version_intersect_without_overlap_is_empty() -> None:
+    assert version_intersect('v1.0-v2.0', 'v3.0-v4.0') == '<empty>'
+
+
+def test_version_union_merges_overlapping_ranges() -> None:
+    assert version_union('v1.0-v3.0', 'v2.0-v4.0') == 'v1.0-v4.0'
+
+
+def test_version_union_keeps_disjoint_ranges() -> None:
+    assert version_union('v1.0-v2.0', 'v4.0') == 'v1.0-v2.0;v4.0'
+
+
+def test_version_union_merges_adjacent_ranges() -> None:
+    assert version_union('v1.0-v2.0', 'v2.0-v3.0') == 'v1.0-v3.0'
