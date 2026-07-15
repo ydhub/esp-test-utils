@@ -10,6 +10,7 @@ from collections import deque
 from pathlib import Path
 
 import esptest.common.compat_typing as t
+from esptest.common.timestamp import timestamp_iso
 
 from .result import ResultDetail, TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
 
@@ -498,6 +499,7 @@ class XunitLogger:
             properties['category'] = category
         self.running_case = TestCaseResult(name=case_id, classname=classname or '', properties=properties)
         self._case_start_time = time.time()
+        self.running_case.started_at = timestamp_iso()
         self._stdout = self._new_buffer()
         self._stderr = self._new_buffer()
         if not self._pre_case_cache.is_empty:
