@@ -27,6 +27,8 @@ tests/utility/_files/test-bin
 performance_result.json
 xunit_report/
 
+pytest_log/
+pytest_xunit_output/
 
 # docs
 /docs/_build/

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from esptest.common.timestamp import parse_timestamp
 from esptest.testcase.result import TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
 from esptest.testcase.xunit import (
     XUNIT_RESULT_FILE_NAME,
@@ -171,6 +172,20 @@ def test_xunit_logger_accepts_suite_metadata_from_init(tmp_path: Path) -> None:
     assert suite.timestamp == '2026-07-07T10:00:00+0000'
     assert suite.package == 'custom-package'
     assert suite.hostname == 'custom-host'
+
+
+def test_begin_case_records_started_at(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path)
+
+    logger.begin_case('test_started_at')
+    assert logger.running_case is not None
+    assert logger.running_case.started_at
+    logger.end_case()
+
+    case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
+    assert case.started_at
+    # started_at must be a parseable ISO timestamp
+    parse_timestamp(case.started_at)
 
 
 def test_xunit_logger_carries_stdout_before_case_start(tmp_path: Path) -> None:
