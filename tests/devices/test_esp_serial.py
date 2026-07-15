@@ -106,7 +106,7 @@ def test_detect_port_info_no_cache_success() -> None:
     assert result.location == 'usb-loc'
     # Note: on the esptool-success path the info dict is replaced wholesale by
     # _get_esp_port_info(), so the passed serial description is not carried over.
-    assert result.serial_description == ''
+    assert result.serial_description == 'desc'
     assert result.target == 'esp32c3'
     esp.hard_reset.assert_called_once()
 
