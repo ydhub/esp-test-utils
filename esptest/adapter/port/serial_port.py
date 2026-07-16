@@ -132,6 +132,23 @@ class SerialPortMixin(MixinBase):
             self._add_mixin_by_type(serial_instance)
             self.start_redirect_thread()
 
+    def change_serial_config(self, **kwargs: t.Any) -> None:
+        """Change serial config (baudrate/timeout/parity/...) on the underlying serial port.
+
+        Only settings supported by pyserial ``apply_settings`` take effect
+        (baudrate, bytesize, parity, stopbits, xonxoff, dsrdtr, rtscts,
+        timeout, write_timeout, inter_byte_timeout).
+        """
+        if not self.serial:
+            raise OSError('change_serial_config is not available, serial port not configured')
+        # Stop the redirect thread first to avoid racing with the background reader
+        # while the port is being reconfigured.
+        with self.disable_redirect_thread():
+            self.serial.apply_settings(kwargs)
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as log_f:
+                log_f.write(f'------------ change serial config: {self.serial.port} {kwargs} --------------- \n')
+
     def close(self) -> None:
         """Close serial port and clean up resources."""
         super().close()

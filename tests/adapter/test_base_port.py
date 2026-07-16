@@ -1,6 +1,8 @@
 import threading
 import time
 
+import pytest
+
 from esptest.adapter.port.base_port import BasePort, RawPort
 from esptest.common.data_monitor import DataMonitor
 from esptest.config.global_config import g
@@ -156,5 +158,40 @@ def test_serial_error_with_reconnect_count_should_reconnect(monkeypatch) -> None
         assert received_data[-1][0] == 'mock_port_reconnect'
         assert b'hello_after_reconnect' in received_data[-1][1]
         assert port.spawn._read_thread.is_alive()  # pylint: disable=protected-access
+    finally:
+        port.close()
+
+
+def test_base_port_change_serial_config_not_available() -> None:
+    raw_port = MockRawPort()
+    port = BasePort(raw_port, name='no_serial_cfg')
+    try:
+        with pytest.raises(OSError, match='change_serial_config is not available'):
+            port.change_serial_config(baudrate=115200)
+    finally:
+        port.close()
+
+
+def test_base_port_write_expect_raise_when_redirect_thread_stopped() -> None:
+    raw_port = MockRawPort()
+    port = BasePort(raw_port, name='stopped_port')
+    try:
+        assert port.stop_redirect_thread() is True
+        with pytest.raises(OSError, match='redirect thread not started'):
+            port.write('x')
+        with pytest.raises(OSError, match='redirect thread not started'):
+            port.expect('x', timeout=0.01)
+        with pytest.raises(OSError, match='redirect thread not started'):
+            port.expect_exact('x', timeout=0.01)
+    finally:
+        port.close()
+
+
+def test_base_port_expect_exact_succeeds_when_pattern_matches() -> None:
+    raw_port = MockRawPort()
+    port = BasePort(raw_port, name='expect_exact_ok')
+    try:
+        raw_port.feed_data(b'hello world\n')
+        port.expect_exact('hello world', timeout=2)
     finally:
         port.close()
