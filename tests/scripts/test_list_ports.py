@@ -120,38 +120,17 @@ def test_main_serial_text_format(capsys: pytest.CaptureFixture) -> None:
     assert 'None' not in out
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason='windows does not support pyudev')
 def test_run_uart_monitor_success() -> None:
     # Inject a fake module so this test never imports real uart_monitor
-    # (avoids pyudev/fcntl on Windows and submodule-resolution issues on 3.7).
-    import sys
+    # (avoids pyudev/fcntl on Linux and submodule-resolution issues on 3.7).
     import types
 
     start_monitoring = mock.Mock()
-    if list_ports.sys.platform == 'win32':
-        mod_name = 'esptest.tools.uart_monitor_win'
-    else:
-        mod_name = 'esptest.tools.uart_monitor'
+    mod_name = 'esptest.tools.uart_monitor'
     fake_mod = types.ModuleType(mod_name)
     fake_mod.start_monitoring = start_monitoring  # type: ignore[attr-defined]
     with mock.patch.dict(sys.modules, {mod_name: fake_mod}):
         list_ports.run_uart_monitor()
-    start_monitoring.assert_called_once()
-
-
-def test_run_uart_monitor_dispatches_win_module() -> None:
-    import sys
-    import types
-
-    start_monitoring = mock.Mock()
-    fake_mod = types.ModuleType('esptest.tools.uart_monitor_win')
-    fake_mod.start_monitoring = start_monitoring  # type: ignore[attr-defined]
-    # keep Python 3.7-compatible multi-context with-statement
-    # fmt: off
-    with mock.patch.object(list_ports.sys, 'platform', 'win32'), \
-        mock.patch.dict(sys.modules, {'esptest.tools.uart_monitor_win': fake_mod}):
-        list_ports.run_uart_monitor()
-    # fmt: on
     start_monitoring.assert_called_once()
 
 

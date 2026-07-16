@@ -187,17 +187,36 @@ def test_refresh_serial_ports_windows_without_usb_interface_path() -> None:
 
 
 def test_start_monitoring_win_polls_without_pyudev() -> None:
-    from esptest.tools import uart_monitor_win
-
     # keep Python 3.7-compatible multi-context with-statement
     # fmt: off
     with mock.patch.object(uart_monitor, '_bootstrap_monitoring') as bootstrap, \
         mock.patch.object(uart_monitor, 'check_new_devices_status', side_effect=[None, KeyboardInterrupt()]), \
-        mock.patch.object(uart_monitor_win.time, 'sleep'):
-        uart_monitor_win.start_monitoring()
+        mock.patch.object(uart_monitor.time, 'sleep'):
+        uart_monitor.start_monitoring_win()
     # fmt: on
 
     bootstrap.assert_called_once()
+
+
+def test_start_monitoring_dispatches_by_platform() -> None:
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(uart_monitor, 'start_monitoring_win') as win_mock, \
+        mock.patch.object(uart_monitor, 'start_monitoring_linux') as linux_mock, \
+        mock.patch.object(uart_monitor.sys, 'platform', 'win32'):
+        uart_monitor.start_monitoring()
+    # fmt: on
+    win_mock.assert_called_once()
+    linux_mock.assert_not_called()
+
+    # fmt: off
+    with mock.patch.object(uart_monitor, 'start_monitoring_win') as win_mock, \
+        mock.patch.object(uart_monitor, 'start_monitoring_linux') as linux_mock, \
+        mock.patch.object(uart_monitor.sys, 'platform', 'linux'):
+        uart_monitor.start_monitoring()
+    # fmt: on
+    linux_mock.assert_called_once()
+    win_mock.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -379,21 +379,27 @@ def start_monitoring_linux() -> None:
         observer.stop()
 
 
+def start_monitoring_win() -> None:
+    """Windows monitor: poll serial ports periodically (no pyudev)."""
+    _bootstrap_monitoring()
+
+    try:
+        while True:
+            check_new_devices_status()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
 def start_monitoring() -> None:
-    """Linux UART monitor entry (pyudev). On Windows use ``uart_monitor_win``."""
-    start_monitoring_linux()
+    """UART monitor entry: pyudev on Linux, polling on Windows."""
+    if sys.platform == 'win32':
+        start_monitoring_win()
+    else:
+        start_monitoring_linux()
 
 
 def main() -> None:
-    if sys.platform == 'win32':
-        # Avoid importing uart_monitor_win here (would create a cyclic import).
-        # Windows users should use the dedicated entry or ``list-ports --monitor``.
-        print(
-            'On Windows use: python -m esptest.tools.uart_monitor_win '
-            '(or: python -m esptest.scripts.list_ports --monitor)',
-            file=sys.stderr,
-        )
-        sys.exit(1)
     start_monitoring()
 
 
