@@ -37,7 +37,7 @@ include = ["esptest", "esptest.*"]
         "PyYAML",
         "pexpect",
         "pyusb",
-        "pyudev",
+        "pyudev; sys_platform == 'linux'",
         "esptool",
         "packaging",
         "rich",

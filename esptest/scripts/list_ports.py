@@ -14,7 +14,10 @@ except ImportError:
 
 def run_uart_monitor() -> None:
     try:
-        from esptest.tools.uart_monitor import start_monitoring
+        if sys.platform == 'win32':
+            from esptest.tools.uart_monitor_win import start_monitoring
+        else:
+            from esptest.tools.uart_monitor import start_monitoring
     except ImportError as e:
         print(f'import uart_monitor failed: {str(e)}`')
         sys.exit(1)

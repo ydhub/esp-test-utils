@@ -1,12 +1,7 @@
 import asyncio
-import sys
 from unittest import mock
 
 import pytest
-
-if sys.platform == 'win32':
-    # uart_monitor depends on pyudev (Linux-only; pulls in fcntl), skip on Windows.
-    pytest.skip('uart_monitor requires pyudev which is Linux-only', allow_module_level=True)
 
 from esptest.devices.esp_serial import EspPortInfo
 from esptest.tools import uart_monitor
@@ -139,6 +134,70 @@ def test_detect_port_chip_retries_on_failure() -> None:
     # one initial attempt + MAX_DETECT_RETRY retries
     assert detect_mock.call_count == uart_monitor.MAX_DETECT_RETRY + 1
     assert device.chip.target == 'unknown'
+
+
+def test_detect_chip_skips_lsof_when_missing() -> None:
+    """When lsof is unavailable, detection must still run (Windows / minimal hosts)."""
+    device = _make_device()
+    esp_port = EspPortInfo('/dev/ttyUSB0', 'loc-a', True, target='esp32c3', mac='aa:bb')
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(
+        uart_monitor.asyncio, 'create_subprocess_exec', side_effect=FileNotFoundError('lsof')
+    ), \
+        mock.patch.object(uart_monitor, 'detect_port_info_no_cache', return_value=esp_port) as detect_mock:
+        asyncio.run(uart_monitor.detect_chip(device))
+    # fmt: on
+
+    detect_mock.assert_called_once()
+    assert device.chip.target == 'esp32c3'
+
+
+def test_refresh_serial_ports_windows_without_usb_interface_path() -> None:
+    fake_port = mock.MagicMock()
+    fake_port.usb_interface_path = None
+    fake_port.hwid = 'USB VID:PID=10C4:EA60'
+    fake_port.location = None
+    fake_port.name = 'COM3'
+    fake_port.device = 'COM3'
+    fake_port.description = 'Silicon Labs CP210x'
+
+    uart_monitor.devices.clear()
+    uart_monitor.recent_devices = []
+    while not uart_monitor.detect_queue.empty():
+        uart_monitor.detect_queue.get()
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(uart_monitor.sys, 'platform', 'win32'), \
+        mock.patch.object(uart_monitor.list_ports, 'comports', return_value=[fake_port]):
+        changed = uart_monitor.refresh_serial_ports(initial=True)
+    # fmt: on
+
+    assert changed is True
+    assert fake_port.hwid in uart_monitor.devices
+    device = uart_monitor.devices[fake_port.hwid]
+    assert device.sys_device == 'COM3'
+    assert device.location == 'COM3'
+
+    uart_monitor.devices.clear()
+    while not uart_monitor.detect_queue.empty():
+        uart_monitor.detect_queue.get()
+
+
+def test_start_monitoring_win_polls_without_pyudev() -> None:
+    from esptest.tools import uart_monitor_win
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(uart_monitor, '_bootstrap_monitoring') as bootstrap, \
+        mock.patch.object(uart_monitor, 'check_new_devices_status', side_effect=[None, KeyboardInterrupt()]), \
+        mock.patch.object(uart_monitor_win.time, 'sleep'):
+        uart_monitor_win.start_monitoring()
+    # fmt: on
+
+    bootstrap.assert_called_once()
 
 
 if __name__ == '__main__':
