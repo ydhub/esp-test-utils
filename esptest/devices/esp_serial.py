@@ -69,7 +69,7 @@ def _get_esp_port_info(esp: esptool.ESPLoader) -> t.Dict[str, t.Any]:
 
 @suppress_stdout()
 def detect_port_info_no_cache(device: str, location: str = '', description: str = '') -> EspPortInfo:
-    _info = {'serial_description': description or ''}
+    _info = {}
     _support_esptool = True
     try:
         if Version(esptool.__version__) > Version('4.8.dev3'):
@@ -83,9 +83,11 @@ def detect_port_info_no_cache(device: str, location: str = '', description: str 
             _info = _get_esp_port_info(esp)
             esp.hard_reset()
             esp._port.close()  # pylint: disable=protected-access
+        _info['serial_description'] = description or ''
         logger.info(f'Auto-Detect chip {device}: {_info}')
     except esptool.util.FatalError as e:
         logger.warning(f'Detect {device} via esptool failed {type(e)}: {str(e)}')
+        _info['serial_description'] = description or ''
         _info['chip_description'] = f'esptool {type(e)}: {str(e)}'
         _support_esptool = False
     return EspPortInfo(device, location, _support_esptool, **_info)
