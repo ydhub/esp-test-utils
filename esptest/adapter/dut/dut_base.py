@@ -197,7 +197,7 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
     @property
     def esp(self) -> ESPLoader:
         """Not all Dut support this method"""
-        raise NotImplementedError()
+        raise NotImplementedError('esp is not implemented')
 
     def close(self) -> None:
         pass
@@ -221,16 +221,16 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
 
     # esptool related methods
     def hard_reset(self) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError('hard reset is not implemented')
 
     def flash(self, erase_nvs: bool = True) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError('flash is not implemented')
 
     def flash_partition(self, part: t.Union[int, str], bin_file: str = '') -> None:
-        raise NotImplementedError()
+        raise NotImplementedError('flash_partition is not implemented')
 
     def dump_flash(self, part: t.Union[int, str], bin_file: str, size: int = 0) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError('dump_flash is not implemented')
 
     # port base methods, use the proxy method if possible, otherwise, child class should implement them
     # def __getattribute__(self, name: str) -> t.Any:
@@ -243,7 +243,7 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
     def raw_port(self) -> t.Any:
         if self._base_port_proxy:
             return self._base_port_proxy.raw_port
-        raise NotImplementedError()
+        raise OSError('raw_port is not available, port not configured')
 
     @property
     def log_file(self) -> t.Any:
@@ -282,17 +282,23 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
 
     @name.setter
     def name(self, value: str) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError('set dut name is not supported now')
 
     def write(self, data: t.AnyStr) -> None:
         if self._base_port_proxy:
             return self._base_port_proxy.write(data)
-        raise NotImplementedError()
+        raise OSError('write is not available, port not configured')
 
     def write_line(self, data: t.AnyStr, end: str = '\n') -> None:
         if self._base_port_proxy:
             return self._base_port_proxy.write_line(data, end)
-        raise NotImplementedError()
+        raise OSError('write_line is not available, port not configured')
+
+    def change_serial_config(self, **kwargs: t.Any) -> None:
+        """Change the underlying serial config (baudrate/timeout/parity/...)."""
+        if self._base_port_proxy:
+            return self._base_port_proxy.change_serial_config(**kwargs)
+        raise OSError('change_serial_config is not available, port not configured')
 
     @overload
     def expect(self, pattern: str, timeout: float = 30) -> None: ...
@@ -306,7 +312,7 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
     def expect(self, pattern, timeout=30):  # type: ignore
         if self._base_port_proxy:
             return self._base_port_proxy.expect(pattern, timeout)
-        raise NotImplementedError()
+        raise OSError('expect is not available, port not configured')
 
     @property
     def data_cache(self) -> str:
@@ -318,24 +324,23 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
     def read_all_data(self, flush: bool = True) -> str:
         if self._base_port_proxy:
             return self._base_port_proxy.read_all_data(flush)
-        raise NotImplementedError()
+        raise OSError('read_all_data is not available, port not configured')
 
     def read_all_bytes(self, flush: bool = False) -> bytes:
         if self._base_port_proxy:
             return self._base_port_proxy.read_all_bytes(flush)
-        raise NotImplementedError()
+        raise OSError('read_all_bytes is not available, port not configured')
 
     def start_redirect_thread(self) -> None:
         """Start a new thread to read data from port and save to data cache."""
         if self._base_port_proxy:
-            return self._base_port_proxy.start_redirect_thread()
-        raise NotImplementedError()
+            self._base_port_proxy.start_redirect_thread()
 
     def stop_redirect_thread(self) -> bool:
         """Stop the redirect thread and pexpect process."""
         if self._base_port_proxy:
             return self._base_port_proxy.stop_redirect_thread()
-        raise NotImplementedError()
+        return False
 
     @contextlib.contextmanager
     def disable_redirect_thread(self) -> t.Generator[None, None, None]:

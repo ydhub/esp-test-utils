@@ -509,10 +509,17 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
     def write(self, data: t.AnyStr) -> None:
         if self._pexpect_spawn:
             return self._pexpect_spawn.write(data)
-        raise NotImplementedError()
+        raise OSError('write is not available, redirect thread not started (port not open?)')
 
     def write_line(self, data: t.AnyStr, end: str = '\n') -> None:
         return self.write(to_bytes(data, end))
+
+    def change_serial_config(self, **kwargs: t.Any) -> None:
+        """Change the underlying serial config (baudrate/timeout/parity/...).
+
+        The base port has no serial config to change; serial-backed ports override this.
+        """
+        raise OSError('change_serial_config is not available, port not configured')
 
     @handle_expect_timeout
     def expect_exact(self, pattern: t.Union[str, bytes], timeout: float) -> None:
@@ -520,7 +527,8 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
         if self.spawn:
             pexpect_pattern = to_bytes(pattern)
             self.spawn.expect_exact(pexpect_pattern, timeout=timeout)
-        raise NotImplementedError()
+            return
+        raise OSError('expect spawn is not available, redirect thread not started (port not open?)')
 
     @overload
     def expect(self, pattern: str, timeout: float = PEXPECT_DEFAULT_TIMEOUT) -> None: ...
@@ -572,7 +580,7 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
                 # convert the match result into string
                 match = pattern.match(to_str(match.group(0)))
             return match  # type: ignore
-        raise NotImplementedError()
+        raise OSError('expect spawn is not available, redirect thread not started (port not open?)')
 
     @property
     def data_cache(self) -> str:

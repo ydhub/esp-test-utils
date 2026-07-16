@@ -174,6 +174,42 @@ def test_esp_dut_close_closes_serial_base_raw_port() -> None:
     assert close_called['count'] == 1
 
 
+def test_dut_base_change_serial_config_proxies_to_base_port() -> None:
+    class FakeBasePort:
+        def __init__(self) -> None:
+            self.kwargs: t.Optional[t.Dict[str, t.Any]] = None
+
+        def change_serial_config(self, **kwargs: t.Any) -> None:
+            self.kwargs = kwargs
+
+    base_port = FakeBasePort()
+    dut = object.__new__(DutBase)
+    dut._base_port_proxy = base_port  # type: ignore
+
+    DutBase.change_serial_config(dut, baudrate=74880)
+    assert base_port.kwargs == {'baudrate': 74880}
+
+
+def test_dut_base_change_serial_config_raises_without_proxy() -> None:
+    dut = object.__new__(DutBase)
+    dut._base_port_proxy = None
+    with pytest.raises(OSError, match='change_serial_config is not available'):
+        DutBase.change_serial_config(dut, baudrate=115200)
+
+
+def test_dut_base_stop_redirect_thread_returns_false_without_proxy() -> None:
+    dut = object.__new__(DutBase)
+    dut._base_port_proxy = None
+    assert DutBase.stop_redirect_thread(dut) is False
+
+
+def test_dut_base_write_raises_without_proxy() -> None:
+    dut = object.__new__(DutBase)
+    dut._base_port_proxy = None
+    with pytest.raises(OSError, match='write is not available, port not configured'):
+        DutBase.write(dut, 'x')
+
+
 @pytest.mark.skipif(sys.platform == 'win32', reason='Windows does not support pty')
 class TestSerialDut(unittest.TestCase):
     def setUp(self) -> None:
