@@ -118,6 +118,20 @@ pytest-coverage:
     - coverage report
     - coverage xml
     - coverage html
+    # Upload to Codecov (GitHub slug). Set CODECOV_TOKEN in GitLab CI/CD Variables.
+    - |
+      if [ -n "${CODECOV_TOKEN:-}" ]; then
+        pip install codecov-cli
+        codecovcli upload-process \
+          -t "$CODECOV_TOKEN" \
+          -f coverage.xml \
+          --disable-search \
+          -r ydhub/esp-test-utils \
+          --git-service github \
+          || echo "WARNING: Codecov upload failed (non-blocking)"
+      else
+        echo "CODECOV_TOKEN not set; skipping Codecov upload"
+      fi
   coverage: '/TOTAL.*\s+(\d+)\%/'
   artifacts:
     paths:

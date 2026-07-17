@@ -1,5 +1,11 @@
 # ESP Test Utils
 
+[![PyPI](https://img.shields.io/pypi/v/esp-test-utils.svg)](https://pypi.org/project/esp-test-utils/)
+[![GitHub release](https://img.shields.io/github/v/release/ydhub/esp-test-utils.svg)](https://github.com/ydhub/esp-test-utils/releases/latest)
+[![Python Versions](https://img.shields.io/pypi/pyversions/esp-test-utils.svg)](https://pypi.org/project/esp-test-utils/)
+[![Documentation Status](https://img.shields.io/readthedocs/esp-test-utils.svg)](https://esp-test-utils.readthedocs.io/en/latest/)
+[![codecov](https://codecov.io/gh/ydhub/esp-test-utils/branch/main/graph/badge.svg)](https://codecov.io/gh/ydhub/esp-test-utils)
+
 This project provides some utility methods sharing between different ESP test frameworks.
 
 ## Installation
