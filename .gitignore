@@ -33,3 +33,4 @@ pytest_xunit_output/
 # docs
 /docs/_build/
 /docs/api/_generated/
+docs/superpowers/
