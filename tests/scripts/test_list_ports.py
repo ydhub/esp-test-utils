@@ -120,13 +120,16 @@ def test_main_serial_text_format(capsys: pytest.CaptureFixture) -> None:
     assert 'None' not in out
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason='windows does not support pyudev')
 def test_run_uart_monitor_success() -> None:
-    # Import first so mock can resolve the submodule on Python 3.7
-    # (patch('esptest.tools...') fails when esptest.tools is not yet loaded).
-    import esptest.tools.uart_monitor as uart_monitor
+    # Inject a fake module so this test never imports real uart_monitor
+    # (avoids pyudev/fcntl on Linux and submodule-resolution issues on 3.7).
+    import types
 
-    with mock.patch.object(uart_monitor, 'start_monitoring') as start_monitoring:
+    start_monitoring = mock.Mock()
+    mod_name = 'esptest.tools.uart_monitor'
+    fake_mod = types.ModuleType(mod_name)
+    fake_mod.start_monitoring = start_monitoring  # type: ignore[attr-defined]
+    with mock.patch.dict(sys.modules, {mod_name: fake_mod}):
         list_ports.run_uart_monitor()
     start_monitoring.assert_called_once()
 

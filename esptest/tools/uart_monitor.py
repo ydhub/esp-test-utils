@@ -1,13 +1,13 @@
 import asyncio
 import os
+import sys
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
 from queue import Queue
-from typing import Deque, Dict, List
+from typing import Deque, Dict, List, Optional
 
-import pyudev
 from rich import box
 from rich.console import Console
 from rich.table import Table
@@ -129,6 +129,7 @@ async def detect_port_chip(device: Device) -> None:
 
 async def detect_chip(device: Device) -> None:
     """Detect the espressif chip on specified serial port."""
+    # lsof is Linux-only; on Windows / when missing, skip occupancy check.
     try:
         proc = await asyncio.create_subprocess_exec(
             'lsof', device.sys_device, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -140,9 +141,7 @@ async def detect_chip(device: Device) -> None:
             device.chip.target = ''
             return  # lsof got succ, the device is occupied
     except FileNotFoundError:
-        debug_print('lsof command not available: apt-get install lsof')
-        device.chip.target = ''
-        return
+        debug_print('lsof command not available, skip occupancy check')
 
     await detect_port_chip(device)
 
@@ -160,6 +159,15 @@ def detect_chip_worker() -> None:
         display_serial_ports()
 
 
+def _port_identity(port) -> Optional[str]:  # type: ignore
+    """Stable key for a serial port across platforms.
+
+    Linux prefers ``usb_interface_path``; Windows usually lacks it, so fall back
+    to ``hwid`` / ``device``.
+    """
+    return getattr(port, 'usb_interface_path', None) or getattr(port, 'hwid', None) or port.device or None
+
+
 def refresh_serial_ports(initial: bool = True) -> bool:
     global recent_devices  # pylint: disable=global-statement
     timestamp = time.time()
@@ -168,48 +176,55 @@ def refresh_serial_ports(initial: bool = True) -> bool:
     with devices_lock:
         ports = list(list_ports.comports())
         for port in ports:
-            iface_path = port.usb_interface_path
-            if port.location and iface_path:
-                name = port.name if port.name else port.device.split('/')[-1]
-                if iface_path in devices:
-                    # update the device info
-                    device = devices[iface_path]
-                    if device.last_seen - device.first_seen < 10 and timestamp - device.first_seen >= 10:  # pylint: disable=chained-comparison
-                        changed = True
+            iface_path = _port_identity(port)
+            # Linux: require USB location to filter non-USB tty devices.
+            # Windows: location may be missing; track by device/hwid instead.
+            if not iface_path:
+                continue
+            if sys.platform != 'win32' and not port.location:
+                continue
 
-                    if not device.connected:
-                        changed = True
-                        device.first_seen = timestamp
-                        device.chip.clear()
-                        device.chip.target = 'Detecting...'
-                        # the device name and location may change, so we update it
-                        device.sys_device = port.device
-                        device.location = port.location
-                        device.description = port.description
-                        detect_queue.put(device)
-                        if not initial:
-                            recent_devices.append(device)
+            name = port.name if port.name else port.device.split('/')[-1].split('\\')[-1]
+            location = port.location or port.device
+            if iface_path in devices:
+                # update the device info
+                device = devices[iface_path]
+                if device.last_seen - device.first_seen < 10 and timestamp - device.first_seen >= 10:  # pylint: disable=chained-comparison
+                    changed = True
 
-                    device.name = name
-                    device.connected = True
-                    device.last_seen = timestamp
-                else:
-                    # new device
-                    device = Device(
-                        name,
-                        port.device,
-                        port.location,
-                        port.description,
-                        connected=True,
-                        last_seen=timestamp,
-                        first_seen=timestamp,
-                        chip=Chip(target='Detecting...'),
-                    )
-                    devices[iface_path] = device
+                if not device.connected:
+                    changed = True
+                    device.first_seen = timestamp
+                    device.chip.clear()
+                    device.chip.target = 'Detecting...'
+                    # the device name and location may change, so we update it
+                    device.sys_device = port.device
+                    device.location = location
+                    device.description = port.description
                     detect_queue.put(device)
                     if not initial:
                         recent_devices.append(device)
-                    changed = True
+
+                device.name = name
+                device.connected = True
+                device.last_seen = timestamp
+            else:
+                # new device
+                device = Device(
+                    name,
+                    port.device,
+                    location,
+                    port.description,
+                    connected=True,
+                    last_seen=timestamp,
+                    first_seen=timestamp,
+                    chip=Chip(target='Detecting...'),
+                )
+                devices[iface_path] = device
+                detect_queue.put(device)
+                if not initial:
+                    recent_devices.append(device)
+                changed = True
 
         # update the status of disconnected devices
         disconnect_devices = set()
@@ -328,7 +343,8 @@ def display_serial_ports() -> None:
     console.print('Press Ctrl+C to exit')
 
 
-def start_monitoring() -> None:
+def _bootstrap_monitoring() -> None:
+    """Initial scan, detect existing ports, and start the detect worker."""
     refresh_serial_ports()
     display_serial_ports()
 
@@ -339,6 +355,13 @@ def start_monitoring() -> None:
     # start a detect worker for new coming device
     detect_thread = threading.Thread(target=detect_chip_worker, daemon=True)
     detect_thread.start()
+
+
+def start_monitoring_linux() -> None:
+    """Linux monitor: pyudev netlink for hotplug + 1s polling fallback."""
+    import pyudev  # Linux-only; must not be imported at module top level
+
+    _bootstrap_monitoring()
 
     context = pyudev.Context()
     monitor = pyudev.Monitor.from_netlink(context)
@@ -354,6 +377,26 @@ def start_monitoring() -> None:
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
+
+
+def start_monitoring_win() -> None:
+    """Windows monitor: poll serial ports periodically (no pyudev)."""
+    _bootstrap_monitoring()
+
+    try:
+        while True:
+            check_new_devices_status()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
+def start_monitoring() -> None:
+    """UART monitor entry: pyudev on Linux, polling on Windows."""
+    if sys.platform == 'win32':
+        start_monitoring_win()
+    else:
+        start_monitoring_linux()
 
 
 def main() -> None:
