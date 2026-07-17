@@ -195,3 +195,70 @@ def test_hard_reset_raises_when_unavailable() -> None:
     harness = EspMixinHarness(DutConfig(name='dut', device=''), esp=None)
     with pytest.raises(OSError, match='hard reset is not available'):
         EspMixin.hard_reset(harness)  # type: ignore[arg-type]
+
+
+class _RedirectParent:
+    """Minimal parent so EspMixin.stop/start_redirect_thread can call super()."""
+
+    def __init__(self) -> None:
+        self.spawn_running = True
+        self.stop_calls = 0
+        self.start_calls = 0
+
+    def stop_redirect_thread(self) -> bool:
+        self.stop_calls += 1
+        was_running = self.spawn_running
+        self.spawn_running = False
+        return was_running
+
+    def start_redirect_thread(self) -> None:
+        self.start_calls += 1
+        self.spawn_running = True
+
+
+class EspMixinRedirectHarness(EspMixin, _RedirectParent):
+    def __init__(self, esp: t.Any = None, log_file: str = '') -> None:
+        _RedirectParent.__init__(self)
+        self.dut_config = DutConfig(name='dut')  # type: ignore[misc]
+        self._esp = esp
+        self._log_file = log_file
+        self.downbin_tool = None
+
+    @property
+    def esp(self) -> t.Any:
+        return self._esp
+
+    @property
+    def log_file(self) -> str:
+        return self._log_file
+
+
+def test_esp_mixin_stop_redirect_stops_spawn_when_port_already_closed() -> None:
+    """Closed serial must not skip stopping spawn (otherwise expect has no redirect)."""
+    esp = _make_esp()
+    esp._port.is_open = False
+    harness = EspMixinRedirectHarness(esp=esp)
+    harness.spawn_running = True
+
+    stopped = harness.stop_redirect_thread()
+
+    assert harness.stop_calls == 1
+    assert harness.spawn_running is False
+    # spawn was running: report stopped so disable_redirect_thread will restart it
+    assert stopped is True
+    esp._port.close.assert_not_called()
+
+
+def test_esp_mixin_stop_redirect_closes_open_port_and_allows_restart() -> None:
+    esp = _make_esp()
+    esp._port.is_open = True
+    harness = EspMixinRedirectHarness(esp=esp)
+
+    stopped = harness.stop_redirect_thread()
+    assert stopped is True
+    assert harness.spawn_running is False
+    esp._port.close.assert_called_once()
+
+    harness.start_redirect_thread()
+    assert harness.spawn_running is True
+    esp._port.open.assert_called_once()

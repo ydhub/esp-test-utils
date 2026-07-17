@@ -203,6 +203,39 @@ def test_dut_base_stop_redirect_thread_returns_false_without_proxy() -> None:
     assert DutBase.stop_redirect_thread(dut) is False
 
 
+def test_dut_base_disable_redirect_thread_restores_after_exception() -> None:
+    """DutBase must restart redirect even when the disabled block raises."""
+
+    class FakeBasePort:
+        def __init__(self) -> None:
+            self.started = True
+            self.stop_calls = 0
+            self.start_calls = 0
+
+        def stop_redirect_thread(self) -> bool:
+            self.stop_calls += 1
+            was_started = self.started
+            self.started = False
+            return was_started
+
+        def start_redirect_thread(self) -> None:
+            self.start_calls += 1
+            self.started = True
+
+    base_port = FakeBasePort()
+    dut = object.__new__(DutBase)
+    dut._base_port_proxy = base_port  # type: ignore
+
+    with pytest.raises(RuntimeError, match='flash failed'):
+        with DutBase.disable_redirect_thread(dut):
+            assert base_port.started is False
+            raise RuntimeError('flash failed')
+
+    assert base_port.stop_calls == 1
+    assert base_port.start_calls == 1
+    assert base_port.started is True
+
+
 def test_dut_base_write_raises_without_proxy() -> None:
     dut = object.__new__(DutBase)
     dut._base_port_proxy = None
