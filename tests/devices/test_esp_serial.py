@@ -2,12 +2,14 @@ from unittest import mock
 
 import esptool
 import pytest
+import serial
 
 from esptest.devices import esp_serial
 from esptest.devices.esp_serial import (
     EspPortInfo,
     _chip_name_to_target,
     _get_esp_port_info,
+    detect_one_port,
     detect_port_info_no_cache,
     get_available_ports,
     list_all_esp_ports,
@@ -119,6 +121,121 @@ def test_detect_port_info_no_cache_fatal_error() -> None:
     assert result.device == '/dev/ttyUSB1'
     assert result.serial_description == 'serial-desc'
     assert 'boom' in result.chip_description
+
+
+def test_detect_port_info_no_cache_serial_timeout() -> None:
+    """SerialTimeoutException must not abort listing; treat as non-esptool port."""
+    with mock.patch.object(
+        esp_serial.esptool,
+        'detect_chip',
+        side_effect=serial.SerialTimeoutException('Write timeout'),
+    ):
+        result = detect_port_info_no_cache('/dev/ttyACM0', '1-10.3.2', 'USB-SPI-BRIDGE')
+
+    assert result.support_esptool is False
+    assert result.device == '/dev/ttyACM0'
+    assert result.serial_description == 'USB-SPI-BRIDGE'
+    assert 'Write timeout' in result.chip_description
+
+
+def test_detect_port_info_no_cache_closes_port_on_serial_error_old_esptool() -> None:
+    """Old esptool path must close the port if SerialException occurs after open."""
+    mock_port = mock.MagicMock()
+    mock_esp = mock.MagicMock()
+    mock_esp._port = mock_port
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial.esptool, '__version__', '4.7.0'), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=mock_esp), \
+        mock.patch.object(
+            esp_serial,
+            '_get_esp_port_info',
+            side_effect=serial.SerialTimeoutException('Write timeout'),
+        ):
+        result = detect_port_info_no_cache('/dev/ttyUSB0', 'loc', 'desc')
+    # fmt: on
+
+    mock_port.close.assert_called_once()
+    assert result.support_esptool is False
+    assert result.device == '/dev/ttyUSB0'
+    assert 'Write timeout' in result.chip_description
+
+
+def test_detect_one_port_skips_usb_spi_bridge() -> None:
+    """Espressif USB-SPI-BRIDGE (303a:4001) is not a UART ROM port for esptool."""
+    port = mock.MagicMock(
+        device='/dev/ttyACM0',
+        location='1-10.3.2',
+        description='Espressif USB-SPI-BRIDGE',
+        vid=0x303A,
+        pid=0x4001,
+    )
+    with mock.patch.object(esp_serial, 'detect_port_info_no_cache') as detect_mock:
+        result = detect_one_port(port)
+
+    detect_mock.assert_not_called()
+    assert result.support_esptool is False
+    assert result.device == '/dev/ttyACM0'
+    assert result.serial_description == 'Espressif USB-SPI-BRIDGE'
+
+
+def test_detect_one_port_respects_empty_skip_list() -> None:
+    """Empty SKIP_ESPTOOL_DETECT_VID_PID disables skip; detect still runs."""
+    port = mock.MagicMock(
+        device='/dev/ttyACM0',
+        location='1-10.3.2',
+        description='Espressif USB-SPI-BRIDGE',
+        vid=0x303A,
+        pid=0x4001,
+    )
+    info = EspPortInfo('/dev/ttyACM0', '1-10.3.2', False, serial_description='Espressif USB-SPI-BRIDGE')
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial.g, 'SKIP_ESPTOOL_DETECT_VID_PID', frozenset()), \
+        mock.patch.object(esp_serial, 'detect_port_info_no_cache', return_value=info) as detect_mock:
+        result = detect_one_port(port)
+    # fmt: on
+
+    detect_mock.assert_called_once_with('/dev/ttyACM0', '1-10.3.2', 'Espressif USB-SPI-BRIDGE')
+    assert result is info
+
+
+def test_list_all_esp_ports_continues_after_detect_failure() -> None:
+    """SerialTimeoutException on one port must not stop listing the remaining ports."""
+    # Non-skip VID:PID so detect_port_info_no_cache actually runs for port_a.
+    port_a = mock.MagicMock(device='/dev/ttyACM0', location='loc-a', description='bad', vid=0x1A86, pid=0x7523)
+    port_b = mock.MagicMock(device='/dev/ttyUSB0', location='loc-b', description='ok', vid=0x10C4, pid=0xEA60)
+
+    mock_esp = mock.MagicMock()
+    mock_esp.__enter__ = mock.Mock(return_value=mock_esp)
+    mock_esp.__exit__ = mock.Mock(return_value=None)
+
+    def detect_chip_side_effect(device: str) -> mock.MagicMock:
+        if device == '/dev/ttyACM0':
+            raise serial.SerialTimeoutException('Write timeout')
+        return mock_esp
+
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(esp_serial, 'get_all_serial_ports', return_value=[port_a, port_b]), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', side_effect=detect_chip_side_effect), \
+        mock.patch.object(
+            esp_serial,
+            '_get_esp_port_info',
+            return_value={'target': 'esp32c3', 'chip_name': 'ESP32-C3'},
+        ):
+        detect_one_port.cache_clear()
+        result = list_all_esp_ports()
+    # fmt: on
+
+    assert len(result) == 2
+    assert result[0].device == '/dev/ttyACM0'
+    assert result[0].support_esptool is False
+    assert 'Write timeout' in result[0].chip_description
+    assert result[1].device == '/dev/ttyUSB0'
+    assert result[1].support_esptool is True
+    assert result[1].target == 'esp32c3'
 
 
 def test_list_all_esp_ports() -> None:

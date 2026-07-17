@@ -2,12 +2,14 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import esptool
+import serial
 from packaging.version import Version
 from serial.tools.list_ports_common import ListPortInfo
 
 import esptest.common.compat_typing as t
 
 from ..common.decorators import suppress_stdout
+from ..config.global_config import g
 from ..logger import get_logger
 from .serial_tools import get_all_serial_ports
 
@@ -78,14 +80,18 @@ def detect_port_info_no_cache(device: str, location: str = '', description: str 
                 _info = _get_esp_port_info(esp)
                 esp.hard_reset()
         else:
-            # old esptool <= 4.7
+            # old esptool <= 4.7 — close even if info/reset raises SerialException
             esp = esptool.detect_chip(device)
-            _info = _get_esp_port_info(esp)
-            esp.hard_reset()
-            esp._port.close()  # pylint: disable=protected-access
+            try:
+                _info = _get_esp_port_info(esp)
+                esp.hard_reset()
+            finally:
+                esp._port.close()  # pylint: disable=protected-access
         _info['serial_description'] = description or ''
         logger.info(f'Auto-Detect chip {device}: {_info}')
-    except esptool.util.FatalError as e:
+    except (esptool.util.FatalError, serial.SerialException) as e:
+        # SerialTimeoutException (subclass of SerialException) can happen on
+        # non-UART bridges or busy ports; must not abort list_all_esp_ports.
         logger.warning(f'Detect {device} via esptool failed {type(e)}: {str(e)}')
         _info['serial_description'] = description or ''
         _info['chip_description'] = f'esptool {type(e)}: {str(e)}'
@@ -93,8 +99,25 @@ def detect_port_info_no_cache(device: str, location: str = '', description: str 
     return EspPortInfo(device, location, _support_esptool, **_info)
 
 
+def _should_skip_esptool_detect(port: ListPortInfo) -> bool:
+    vid = getattr(port, 'vid', None)
+    pid = getattr(port, 'pid', None)
+    if vid is None or pid is None:
+        return False
+    return (vid, pid) in g.SKIP_ESPTOOL_DETECT_VID_PID
+
+
 @lru_cache()  # bare @lru_cache is not supported on Python 3.7
 def detect_one_port(port: ListPortInfo) -> EspPortInfo:
+    if _should_skip_esptool_detect(port):
+        logger.info(f'Skip esptool detect on {port.device} (vid={port.vid:04x} pid={port.pid:04x}): {port.description}')
+        return EspPortInfo(
+            port.device,
+            port.location or '',
+            False,
+            serial_description=port.description or '',
+            chip_description=f'skip detect vid={port.vid:04x} pid={port.pid:04x}',
+        )
     return detect_port_info_no_cache(port.device, port.location, port.description)
 
 
