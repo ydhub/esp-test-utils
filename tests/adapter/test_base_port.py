@@ -195,3 +195,20 @@ def test_base_port_expect_exact_succeeds_when_pattern_matches() -> None:
         port.expect_exact('hello world', timeout=2)
     finally:
         port.close()
+
+
+def test_base_port_disable_redirect_thread_restores_after_exception() -> None:
+    """Flash/download failures must not leave redirect thread permanently stopped."""
+    raw_port = MockRawPort()
+    port = BasePort(raw_port, name='restore_after_exc')
+    try:
+        assert port.spawn is not None
+        with pytest.raises(RuntimeError, match='download failed'):
+            with port.disable_redirect_thread():
+                assert port.spawn is None
+                raise RuntimeError('download failed')
+        assert port.spawn is not None
+        raw_port.feed_data(b'hello after restore\n')
+        port.expect_exact('hello after restore', timeout=2)
+    finally:
+        port.close()

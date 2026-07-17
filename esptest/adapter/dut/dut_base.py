@@ -345,6 +345,8 @@ class DutBase(VariablesMixin, DataMonitorMixin, _DutBase):  # pylint: disable=to
     @contextlib.contextmanager
     def disable_redirect_thread(self) -> t.Generator[None, None, None]:
         stopped = self.stop_redirect_thread()
-        yield
-        if stopped:
-            self.start_redirect_thread()
+        try:
+            yield
+        finally:
+            if stopped:
+                self.start_redirect_thread()

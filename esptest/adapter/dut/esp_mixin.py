@@ -190,10 +190,10 @@ class EspMixin(BaseProtocol):
         super().start_redirect_thread()
 
     def stop_redirect_thread(self) -> bool:
-        if self.esp:
-            if not self.esp._port.is_open:  # pylint: disable=protected-access
-                return False
-        super().stop_redirect_thread()
-        if self.esp:
+        # Always stop spawn first. A closed serial port must not skip this,
+        # or expect() will keep seeing a missing redirect after flash failures.
+        stopped = super().stop_redirect_thread()
+        if self.esp and self.esp._port.is_open:  # pylint: disable=protected-access
             self.esp._port.close()  # pylint: disable=protected-access
-        return True
+            stopped = True
+        return stopped
