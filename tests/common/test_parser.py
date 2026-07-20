@@ -120,6 +120,36 @@ def test_expand_env_vars_empty_default_literal() -> None:
     assert expand_env_vars('${ESPPORT1:-}', env={}) == ''
 
 
+def test_expand_env_vars_leaves_unbraced_var_unchanged() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('$ESPPORT', env={'ESPPORT': '/dev/ttyUSB0'}) == '$ESPPORT'
+
+
+def test_expand_env_vars_mixed_unbraced_and_colon_dash_default() -> None:
+    from esptest.common import expand_env_vars
+
+    assert (
+        expand_env_vars(
+            '$ESPPORT/${ESPPORT:-/dev/ttyUSB0}',
+            env={},
+        )
+        == '$ESPPORT//dev/ttyUSB0'
+    )
+
+
+def test_expand_env_vars_mixed_unbraced_and_set_braced() -> None:
+    from esptest.common import expand_env_vars
+
+    assert (
+        expand_env_vars(
+            '$ESPPORT/${ESPPORT:-/dev/ttyUSB0}',
+            env={'ESPPORT': '/dev/ttyUSB1'},
+        )
+        == '$ESPPORT//dev/ttyUSB1'
+    )
+
+
 def test_parse_param_idx_invalid_input() -> None:
     with pytest.raises(ValueError, match='Invalid input'):
         parse_param_idx('', 10)
