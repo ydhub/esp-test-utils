@@ -1,3 +1,18 @@
+## v0.5.1 (2026-07-20)
+
+
+- feat(utility): add get_supported_chip_rev_range on ParseBinPath (4e168c6)
+- fix(devices): skip esptool detect on USB-SPI-BRIDGE ports (e00170f)
+- fix(adapter): restore redirect thread after flash failures (7ad0c61)
+- feat(common): add get_file_text and get_file_bytes in fs (028241d)
+- refactor: consolidate uart monitor win into uart_monitor (415d89a)
+- feat: support uart monitor win (ee41bef)
+- feat(adapter): add change_serial_config and enhance download_bin (1ca7842)
+- feat(list_ports): add --serial option to list serial ports without esptool detect (07509e5)
+- feat(pytest): add reusable pytest plugin and EspTestCase xUnit integration (682f45c)
+- feat: add cache version_contains method (24cf415)
+- feat(docs): add MyST-based documentation site, ReadTheDocs config and CI docs jobs (526ba2e)
+
 ## v0.5.0 (2026-07-08)
 
 
