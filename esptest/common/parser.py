@@ -10,7 +10,7 @@ from ..logger import get_logger
 
 logger = get_logger(__name__)
 
-_ENV_VAR_PATTERN = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
+_ENV_VAR_PATTERN = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:-|-)([^}]*))?\}')
 
 
 @lru_cache()
@@ -19,20 +19,39 @@ def _log_env_var_replacement_once(var_name: str, value: str) -> None:
 
 
 def expand_env_vars(data: str, env: t.Optional[Mapping[str, str]] = None) -> str:
-    """Expand environment variables in ``${VAR_NAME}`` form.
+    """Expand environment variables in braced ``${VAR}`` form.
 
-    Only braced environment variables are expanded. Missing variables raise
-    ``KeyError`` from the selected environment mapping.
+    Supports shell-style defaults:
+
+    - ``${VAR}`` — require ``VAR``; missing raises ``KeyError``
+    - ``${VAR:-default}`` — use ``default`` when ``VAR`` is unset or empty
+    - ``${VAR-default}`` — use ``default`` only when ``VAR`` is unset
+      (empty string is kept)
+
+    Unbraced ``$VAR`` is left unchanged. Default values are literals (no nested
+    ``${...}`` expansion). Missing variables raise ``KeyError`` from the selected
+    environment mapping when no default operator applies.
     """
     env_vars = os.environ if env is None else env
 
     def replace(match: Match[str]) -> str:
         var_name = match.group(1)
-        if var_name in env_vars:
+        operator = match.group(2)
+        default = match.group(3)
+
+        if operator is None:
+            if var_name not in env_vars:
+                raise KeyError(f'Environment variable `{var_name}` is not defined')
             value = env_vars[var_name]
-            _log_env_var_replacement_once(var_name, value)
-            return value
-        raise KeyError(f'Environment variable `{var_name}` is not defined')
+        elif var_name not in env_vars:
+            value = default if default is not None else ''
+        elif operator == ':-' and env_vars[var_name] == '':
+            value = default if default is not None else ''
+        else:
+            value = env_vars[var_name]
+
+        _log_env_var_replacement_once(var_name, value)
+        return value
 
     return _ENV_VAR_PATTERN.sub(replace, data)
 
