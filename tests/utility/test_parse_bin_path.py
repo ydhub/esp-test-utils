@@ -2,7 +2,7 @@ import os
 import shutil
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -247,6 +247,60 @@ def test_flash_partition_args_unknown_partition_raises(test_bin_path: Path, tmp_
     dummy.write_bytes(b'\x00')
     with pytest.raises(ValueError, match='Can not find no_such_part partition info'):
         parse_bin_path.flash_partition_args({'no_such_part': str(dummy)})
+
+
+def test_get_supported_chip_rev_range_from_bootloader(test_bin_path: Path) -> None:
+    parsed = ParseBinPath(test_bin_path)
+    image = MagicMock()
+    image.min_rev_full = 100
+    image.max_rev_full = 199
+    with patch(
+        'esptool.bin_image.LoadFirmwareImage',
+        return_value=image,
+    ) as load_image:
+        assert parsed.get_supported_chip_rev_range() == (100, 199)
+    load_image.assert_called_once()
+    args, _kwargs = load_image.call_args
+    assert args[0] == 'esp32c5'
+    assert Path(args[1]).parts[-2:] == ('bootloader', 'bootloader.bin')
+
+
+def test_get_supported_chip_rev_range_chip_override(test_bin_path: Path) -> None:
+    parsed = ParseBinPath(test_bin_path)
+    image = MagicMock()
+    image.min_rev_full = 0
+    image.max_rev_full = 99
+    with patch(
+        'esptool.bin_image.LoadFirmwareImage',
+        return_value=image,
+    ) as load_image:
+        assert parsed.get_supported_chip_rev_range(chip='esp32') == (0, 99)
+    assert load_image.call_args[0][0] == 'esp32'
+
+
+def test_get_supported_chip_rev_range_fallback_sdkconfig(test_bin_path: Path) -> None:
+    parsed = ParseBinPath(test_bin_path)
+    with patch(
+        'esptool.bin_image.LoadFirmwareImage',
+        side_effect=RuntimeError('boom'),
+    ):
+        assert parsed.get_supported_chip_rev_range() == (100, 199)
+
+
+def test_get_supported_chip_rev_range_both_fail(test_bin_path: Path) -> None:
+    parsed = ParseBinPath(test_bin_path)
+    # Remove FULL keys so sdkconfig fallback fails
+    for key in list(parsed.sdkconfig.keys()):
+        if key.endswith('_REV_MIN_FULL') or key.endswith('_REV_MAX_FULL'):
+            if 'EFUSE_BLOCK' in key:
+                continue
+            del parsed.sdkconfig[key]
+    with patch(
+        'esptool.bin_image.LoadFirmwareImage',
+        side_effect=RuntimeError('boom'),
+    ):
+        with pytest.raises(ValueError, match='failed to get supported chip rev range'):
+            parsed.get_supported_chip_rev_range()
 
 
 def test_dump_nvs_args(test_bin_path: Path, tmp_path: Path) -> None:
