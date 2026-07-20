@@ -78,6 +78,48 @@ def test_expand_env_vars_raises_for_missing_variables_in_given_env() -> None:
         expand_env_vars('${ESPTEST_MISSING_BIN_DIR}/app.bin', env={})
 
 
+def test_expand_env_vars_colon_dash_default_when_unset() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('${ESPPORT1:-/dev/ttyUSB0}', env={}) == '/dev/ttyUSB0'
+
+
+def test_expand_env_vars_colon_dash_uses_env_when_set() -> None:
+    from esptest.common import expand_env_vars
+
+    assert (
+        expand_env_vars(
+            '${ESPPORT1:-/dev/ttyUSB0}',
+            env={'ESPPORT1': '/dev/ttyUSB1'},
+        )
+        == '/dev/ttyUSB1'
+    )
+
+
+def test_expand_env_vars_colon_dash_default_when_empty() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('${ESPPORT1:-/dev/ttyUSB0}', env={'ESPPORT1': ''}) == '/dev/ttyUSB0'
+
+
+def test_expand_env_vars_dash_default_when_unset() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('${ESPPORT1-/dev/ttyUSB0}', env={}) == '/dev/ttyUSB0'
+
+
+def test_expand_env_vars_dash_keeps_empty_when_set() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('${ESPPORT1-/dev/ttyUSB0}', env={'ESPPORT1': ''}) == ''
+
+
+def test_expand_env_vars_empty_default_literal() -> None:
+    from esptest.common import expand_env_vars
+
+    assert expand_env_vars('${ESPPORT1:-}', env={}) == ''
+
+
 def test_parse_param_idx_invalid_input() -> None:
     with pytest.raises(ValueError, match='Invalid input'):
         parse_param_idx('', 10)
