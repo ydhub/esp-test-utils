@@ -35,6 +35,7 @@ def bin_path_to_dir(bin_path: str) -> str:
         download_file(bin_path, new_bin_path)
         bin_path = new_bin_path
     if bin_path.endswith('.zip'):
+        logger.warning(f'bin path {bin_path} is not a directory, trying to convert to directory')
         if hasattr(bin_base_name, 'removesuffix'):
             _bin_name = bin_base_name.removesuffix('.zip')
         else:
@@ -182,7 +183,6 @@ class ParseBinPath:
     ):
         self.bin_path = str(bin_path)
         if not os.path.isdir(self.bin_path):
-            logger.warning(f'bin path {self.bin_path} is not a directory, trying to convert to directory')
             self.bin_path = bin_path_to_dir(self.bin_path)
         self._parttool = parttool
         self._flasher_args: t.Dict[str, t.Any] = {}
@@ -249,6 +249,78 @@ class ParseBinPath:
     def stub(self) -> bool:
         """Check if esptool stub is used"""
         return bool(self.flasher_args['extra_esptool_args'].get('stub', False))
+
+    def _rev_range_from_bootloader(self, chip_name: str) -> t.Tuple[int, int]:
+        """Read (min_rev_full, max_rev_full) from package bootloader.bin.
+
+        Requires esptool >= 4.3 (``min_rev_full`` / ``max_rev_full`` were added
+        then). Older esptool only exposes legacy ``min_rev`` and will raise
+        AttributeError here.
+        """
+        from esptool.bin_image import LoadFirmwareImage
+
+        if not chip_name or chip_name == 'auto':
+            raise ValueError(f'chip must be a concrete target, got {chip_name!r}')
+        boot_rel = self.flasher_args['bootloader']['file']
+        boot_path = os.path.join(self.bin_path, boot_rel)
+        image = LoadFirmwareImage(chip_name, boot_path)
+        return int(image.min_rev_full), int(image.max_rev_full)
+
+    def _rev_range_from_sdkconfig(self) -> t.Tuple[int, int]:
+        """Read (min_rev_full, max_rev_full) from sdkconfig FULL keys."""
+        cfg = self.sdkconfig
+        if 'ESP_REV_MIN_FULL' in cfg and 'ESP_REV_MAX_FULL' in cfg:
+            return int(cfg['ESP_REV_MIN_FULL']), int(cfg['ESP_REV_MAX_FULL'])
+
+        # Target-prefixed pairs, e.g. ESP32C5_REV_MIN_FULL / ESP32C5_REV_MAX_FULL
+        min_keys = [
+            k for k in cfg if k.endswith('_REV_MIN_FULL') and 'EFUSE_BLOCK' not in k and k != 'ESP_REV_MIN_FULL'
+        ]
+        for min_key in sorted(min_keys):
+            prefix = min_key[: -len('_REV_MIN_FULL')]
+            max_key = prefix + '_REV_MAX_FULL'
+            if max_key in cfg:
+                return int(cfg[min_key]), int(cfg[max_key])
+        raise ValueError('sdkconfig missing *_REV_MIN_FULL / *_REV_MAX_FULL pair')
+
+    def get_supported_chip_rev_range(
+        self,
+        chip: t.Optional[str] = None,
+    ) -> t.Tuple[int, int]:
+        """Return (min_rev_full, max_rev_full) supported by this firmware package.
+
+        Prefer bootloader image headers; fall back to sdkconfig ``*_REV_*_FULL``
+        keys. Raise ValueError if both sources fail.
+
+        Bootloader path needs esptool >= 4.3 for ``min_rev_full`` /
+        ``max_rev_full``. On older esptool the bootloader read fails and this
+        method falls back to sdkconfig.
+
+        Older IDF builds that never set chip revision limits may return
+        ``(0, 0)``, which means min/max were not configured (not a parse
+        failure).
+        """
+        chip_name = self.chip if chip is None else chip
+        boot_err: t.Optional[BaseException] = None
+        try:
+            return self._rev_range_from_bootloader(chip_name)
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            boot_err = exc
+            logger.warning(
+                'failed to read bootloader rev range from %s: %s',
+                self.bin_path,
+                exc,
+            )
+
+        sdk_err: t.Optional[BaseException] = None
+        try:
+            return self._rev_range_from_sdkconfig()
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            sdk_err = exc
+
+        raise ValueError(
+            f'failed to get supported chip rev range from bootloader ({boot_err}) and sdkconfig ({sdk_err})'
+        )
 
     @property
     def partition_table_csv_path(self) -> Path:
