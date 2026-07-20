@@ -1,3 +1,9 @@
+## v0.5.2 (2026-07-20)
+
+
+- fix(tools): handle setuptools-vendored InvalidVersion in pip_check (e0f288f)
+- fix(ci): bump GitHub PyPI publish workflow to Python 3.11 (c7a4037)
+
 ## v0.5.1 (2026-07-20)
 
 
