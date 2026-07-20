@@ -78,11 +78,16 @@ pytest-win32:
   needs:
     - job: pytest-linux
       artifacts: false
+  variables:
+    # Mitigate flaky pypi mirror index timeouts (empty bitarray index -> install fail).
+    PIP_DEFAULT_TIMEOUT: "120"
+    PIP_RETRIES: "3"
   before_script:
     - pymanager exec -V:$env:PYTHON_VER -m venv venv
     - 'venv\Scripts\Activate.ps1'
     - python -V
-    - pip install '.[test]'
+    # Retry once: pypi.espressif.cn sometimes returns an incomplete package index.
+    - python -m pip install '.[test]'; if ($LASTEXITCODE -ne 0) { python -m pip install '.[test]' }
   script:
     # - pytest --junitxml=reports/junit.xml --cov=esptest --cov-report=term --cov-report xml:reports/coverage.xml
     - $env:COVERAGE_FILE = ".coverage.$env:CI_JOB_ID"
