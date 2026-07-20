@@ -1,4 +1,5 @@
-# This workflow will upload an esptool Python package when a release is created
+# Upload esp-test-utils to PyPI when a GitHub release is created.
+# Python >=3.10: commitizen>=4.1.1 in the [dev] extra requires it.
 
 name: Publish PyPi Package
 
@@ -16,7 +17,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.8'
+        python-version: '3.11'
     - name: Build Package
       run: |
         pip install -e '.[dev]'
