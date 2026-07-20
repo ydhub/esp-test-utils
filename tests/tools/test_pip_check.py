@@ -106,6 +106,30 @@ def test_simple_check_requirements_invalid_version_format(
         assert 'pytest' in caplog.text
 
 
+def test_simple_check_requirements_vendored_invalid_version(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """InvalidVersion from a setuptools-vendored packaging copy must be handled."""
+    try:
+        from pkg_resources.extern.packaging.version import InvalidVersion as VendoredInvalidVersion
+    except ImportError:
+        pytest.skip('pkg_resources vendored packaging not available')
+
+    def raise_vendored_invalid_version(_value: str) -> None:
+        raise VendoredInvalidVersion("Invalid version: 'invalid.version'")
+
+    reqs_file = tmp_path / 'requirements.txt'
+    reqs_file.write_text('pytest>=7.0.0')
+
+    # Version is imported inside simple_check_requirements; patch the source module.
+    with mock.patch('packaging.version.Version', side_effect=raise_vendored_invalid_version):
+        with mock.patch(patch_target, new_callable=new_callable) as mock_version:
+            mock_version.return_value = 'invalid.version'
+            assert pip_check.simple_check_requirements(reqs_file) is False
+            assert 'pytest' in caplog.text
+
+
 def test_simple_check_requirements_file_not_found() -> None:
     """Test handling of non-existent requirements file"""
     with pytest.raises(FileNotFoundError):

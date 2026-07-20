@@ -39,6 +39,19 @@ def simple_check_requirements(
     from packaging.requirements import InvalidRequirement, Requirement
     from packaging.version import InvalidVersion, Version
 
+    # setuptools may vendor packaging under pkg_resources.extern with a distinct class.
+    invalid_version_errors = [InvalidVersion]
+    try:
+        from pkg_resources.extern.packaging.version import (  # type: ignore
+            InvalidVersion as PkgResourcesInvalidVersion,
+        )
+
+        if PkgResourcesInvalidVersion not in invalid_version_errors:
+            invalid_version_errors.append(PkgResourcesInvalidVersion)
+    except ImportError:
+        pass
+    invalid_version_errors_t = tuple(invalid_version_errors)
+
     pkg_results = [] if _pkg_results is None else _pkg_results
 
     with open(requirements_file, 'r', encoding='utf-8') as f:
@@ -66,7 +79,7 @@ def simple_check_requirements(
                         )
                 except PackageNotFoundError:
                     pkg_results.append(f"Package '{requirement}' is not installed")
-                except InvalidVersion:
+                except invalid_version_errors_t:
                     pkg_results.append(f"Invalid version for package '{req.name}'")
             except InvalidRequirement:
                 pkg_results.append(f"Invalid requirement format '{requirement}'")
