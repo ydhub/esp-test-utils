@@ -5,14 +5,22 @@ import subprocess
 import tempfile
 import time
 import zipfile
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 import esptest.common.compat_typing as t
 
 # pylint 在将 utility 视为顶层时判定“相对导入越级”，故禁用此检查
 from ..tools.http_download import download_file  # pylint: disable=relative-beyond-top-level
+from .merged_bin import (  # pylint: disable=relative-beyond-top-level
+    MergedBinMeta,
+    PartitionInfo,
+    find_merged_bin_in_dir,
+    is_standard_bin_dir,
+    probe_merged_bin,
+    synthetic_flasher_args,
+)
 
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
@@ -24,31 +32,95 @@ def _tmp_dir() -> str:
     return tempfile.mkdtemp()
 
 
+def _path_basename(bin_path: str) -> str:
+    """Basename for local paths or http(s) URLs (query string stripped)."""
+    if bin_path.startswith('http://') or bin_path.startswith('https://'):
+        return os.path.basename(urlparse(bin_path).path)
+    return os.path.basename(bin_path)
+
+
+def _is_zip_ref(bin_path: str) -> bool:
+    return _path_basename(bin_path).lower().endswith('.zip')
+
+
+def _is_bin_ref(bin_path: str) -> bool:
+    return _path_basename(bin_path).lower().endswith('.bin')
+
+
 @lru_cache()
-def bin_path_to_dir(bin_path: str) -> str:
+def bin_path_to_dir_or_bin(
+    bin_path: str,
+    allow_merged: bool = False,
+    check_valid: bool = False,
+) -> str:
+    """Resolve *bin_path* to a local directory or (when allowed) a merged ``.bin``.
+
+    Supports local paths and ``http(s)`` URLs (downloaded first, then handled
+    like a local path). With ``allow_merged=True``, a ``.bin`` file is kept as
+    a file path instead of requiring a zip/directory. With ``check_valid=True``,
+    a resolved ``.bin`` must pass merged-bin probing.
+
+    Returns:
+        Absolute path to a directory, or to a merged ``.bin`` file when
+        ``allow_merged`` is enabled.
+    """
     bin_hash = hash(bin_path)
-    bin_base_name = os.path.basename(bin_path)
-    if bin_path.startswith('http'):
-        assert bin_path.endswith('.zip')  # for now only support zip from url
+    bin_base_name = _path_basename(bin_path)
+
+    if bin_path.startswith('http://') or bin_path.startswith('https://'):
         new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
         os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
         download_file(bin_path, new_bin_path)
         bin_path = new_bin_path
-    if bin_path.endswith('.zip'):
+
+    if _is_bin_ref(bin_path) and os.path.isfile(bin_path):
+        if not allow_merged:
+            raise ValueError(f'merged .bin not allowed without allow_merged=True: {bin_path}')
+        resolved = os.path.realpath(bin_path)
+        if check_valid:
+            probe_merged_bin(Path(resolved))
+        return resolved
+
+    if _is_zip_ref(bin_path):
         logger.warning(f'bin path {bin_path} is not a directory, trying to convert to directory')
-        if hasattr(bin_base_name, 'removesuffix'):
-            _bin_name = bin_base_name.removesuffix('.zip')
+        local_base = os.path.basename(bin_path)
+        if hasattr(local_base, 'removesuffix'):
+            _bin_name = local_base.removesuffix('.zip')
         else:
             # python < 3.9 does not support removesuffix
-            _bin_name = bin_base_name[:-4] if bin_base_name.endswith('.zip') else bin_base_name
+            _bin_name = local_base[:-4] if local_base.lower().endswith('.zip') else local_base
         new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
         os.makedirs(new_bin_path, exist_ok=True)
         with zipfile.ZipFile(bin_path, 'r') as zip_ref:
             zip_ref.extractall(new_bin_path)
         bin_path = new_bin_path
-    if 'partition_table' not in os.listdir(bin_path):
+
+    if not os.path.isdir(bin_path):
+        raise ValueError(f'bin_path is not a directory or supported archive/bin: {bin_path}')
+
+    bin_path = os.path.realpath(bin_path)
+    if check_valid:
+        root = Path(bin_path)
+        if is_standard_bin_dir(root):
+            return bin_path
+        if allow_merged:
+            # Ensure the directory contains exactly one valid merged bin.
+            find_merged_bin_in_dir(root)
+            return bin_path
+        if 'partition_table' not in os.listdir(bin_path):
+            raise ValueError(f'Can not find partition_table from bin_path: {bin_path}')
+    elif 'partition_table' not in os.listdir(bin_path):
         logger.warning('Can not find partition_table from bin_path, maybe invalid!')
     return bin_path
+
+
+def bin_path_to_dir(bin_path: str, check_valid: bool = False) -> str:
+    """Resolve *bin_path* to a local directory.
+
+    Returns:
+        Absolute path to a directory.
+    """
+    return bin_path_to_dir_or_bin(bin_path, allow_merged=False, check_valid=check_valid)
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
@@ -58,6 +130,14 @@ def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
         return 0
     try:
         return ParseBinPath(bin_path).sdkconfig.console_baud
+    except ValueError:
+        sdkconfig_file = Path(bin_path) / 'config' / 'sdkconfig.json'
+        if not sdkconfig_file.is_file():
+            sdkconfig_file = Path(bin_path) / 'sdkconfig'
+        try:
+            return SDKConfig.from_file(sdkconfig_file).console_baud
+        except (OSError, AssertionError, ValueError):
+            return 0
     except (OSError, AssertionError):
         # no sdkconfig file or sdkconfig file is not valid
         return 0
@@ -161,16 +241,6 @@ class SDKConfig(t.Dict[str, t.Any]):
         return bool(self.get('SECURE_BOOT', False))
 
 
-@dataclass
-class PartitionInfo:
-    name: str
-    type: str
-    subtype: str
-    offset: str
-    size: int
-    flags: str
-
-
 class ParseBinPath:
     """Flash args for esptool.py"""
 
@@ -181,13 +251,35 @@ class ParseBinPath:
         bin_path: t.Union[str, Path],
         parttool: str = '',
     ):
-        self.bin_path = str(bin_path)
-        if not os.path.isdir(self.bin_path):
-            self.bin_path = bin_path_to_dir(self.bin_path)
         self._parttool = parttool
         self._flasher_args: t.Dict[str, t.Any] = {}
         self._sdkconfig: SDKConfig = SDKConfig()
         self._partition_table_csv_path: str = ''  # set when partition_table dir is read-only
+        self._mode = 'standard'
+        self._merged_bin_path = ''
+        self._merged_meta: t.Optional[MergedBinMeta] = None
+
+        resolved = bin_path_to_dir_or_bin(str(bin_path), allow_merged=True, check_valid=True)
+        resolved_path = Path(resolved)
+
+        if resolved_path.is_file() and resolved_path.suffix.lower() == '.bin':
+            # Bare / downloaded merged .bin
+            self._mode = 'merged'
+            self._merged_bin_path = str(resolved_path.resolve())
+            self._merged_meta = probe_merged_bin(resolved_path)
+            self.bin_path = str(resolved_path.parent.resolve())
+            return
+
+        self.bin_path = str(resolved_path.resolve())
+        if is_standard_bin_dir(resolved_path):
+            self._mode = 'standard'
+            return
+
+        # Directory without standard markers: exactly one valid merged .bin
+        merged = find_merged_bin_in_dir(resolved_path)
+        self._mode = 'merged'
+        self._merged_bin_path = str(merged.resolve())
+        self._merged_meta = probe_merged_bin(merged)
 
     @property
     def sdkconfig(self) -> SDKConfig:
@@ -237,7 +329,20 @@ class ParseBinPath:
         """Parse flash args from flasher_args.json"""
         if not self._flasher_args:
             flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
-            self._flasher_args = self._parse_flash_args(flasher_args_file)
+            # Bare merged bins live under an arbitrary parent (e.g. /tmp); missing
+            # flasher_args.json is expected — use synthetic args without warning.
+            if flasher_args_file.is_file():
+                loaded = self._parse_flash_args(flasher_args_file)
+                if loaded:
+                    self._flasher_args = loaded
+                elif self._mode == 'merged' and self._merged_meta is not None:
+                    self._flasher_args = synthetic_flasher_args(self._merged_meta)
+                else:
+                    self._flasher_args = loaded
+            elif self._mode == 'merged' and self._merged_meta is not None:
+                self._flasher_args = synthetic_flasher_args(self._merged_meta)
+            else:
+                self._flasher_args = self._parse_flash_args(flasher_args_file)
         return self._flasher_args
 
     @property
@@ -261,6 +366,26 @@ class ParseBinPath:
 
         if not chip_name or chip_name == 'auto':
             raise ValueError(f'chip must be a concrete target, got {chip_name!r}')
+        if self._mode == 'merged':
+            if self._merged_meta is None or not self._merged_bin_path:
+                raise ValueError('merged mode missing meta/bin path')
+            data = Path(self._merged_bin_path).read_bytes()
+            offset = self._merged_meta.boot_offset
+            bootloader = data[offset : offset + 128 * 1024]
+            tmp_path = ''
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tmp:
+                    tmp_path = tmp.name
+                    tmp.write(bootloader)
+                image = LoadFirmwareImage(chip_name, tmp_path)
+                return int(image.min_rev_full), int(image.max_rev_full)
+            finally:
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
         boot_rel = self.flasher_args['bootloader']['file']
         boot_path = os.path.join(self.bin_path, boot_rel)
         image = LoadFirmwareImage(chip_name, boot_path)
@@ -384,11 +509,17 @@ class ParseBinPath:
 
     def parse_partitions(self) -> t.List[PartitionInfo]:
         """Parse partitions from partition-table.csv"""
-        self._gen_partition_table()
         partition_table_file = self.partition_table_csv_path
-        if not partition_table_file.is_file():
-            raise ValueError('Can not parse partition table')
-        return self._parse_partition_table_csv(partition_table_file)
+        partition_table_bin = Path(self.bin_path) / 'partition_table' / 'partition-table.bin'
+        if partition_table_file.is_file() or partition_table_bin.is_file():
+            self._gen_partition_table()
+            partition_table_file = self.partition_table_csv_path
+            if not partition_table_file.is_file():
+                raise ValueError('Can not parse partition table')
+            return self._parse_partition_table_csv(partition_table_file)
+        if self._mode == 'merged' and self._merged_meta is not None:
+            return list(self._merged_meta.partitions)
+        raise ValueError('Can not parse partition table')
 
     def _write_flash_args_common(self, baudrate: int = 0) -> t.List[str]:
         args = []
@@ -439,6 +570,10 @@ class ParseBinPath:
             )
             raise RuntimeError(msg)
 
+    def _has_sdkconfig(self) -> bool:
+        root = Path(self.bin_path)
+        return (root / 'config' / 'sdkconfig.json').is_file() or (root / 'sdkconfig').is_file()
+
     def flash_bin_args(
         self,
         baudrate: int = 0,
@@ -462,11 +597,22 @@ class ParseBinPath:
             # Can't use idf.py flash, can use python -m esptool command in build_log
             args += ['--force']
         # always check secure boot match because efuse will be auto-flashed before idf v6.1 if secure boot is enabled
-        self._check_secure_boot_match(secure_boot)
-        for offset, bin_file in self.flasher_args['flash_files'].items():
-            args += [offset, str(Path(self.bin_path) / bin_file)]
+        if self._has_sdkconfig():
+            self._check_secure_boot_match(secure_boot)
+        else:
+            logger.debug('skip secure boot sdkconfig check: no sdkconfig in %s', self.bin_path)
+        if self._mode == 'merged':
+            args += ['0x0', self._merged_bin_path]
+        else:
+            for offset, bin_file in self.flasher_args['flash_files'].items():
+                args += [offset, str(Path(self.bin_path) / bin_file)]
         if erase_nvs:
-            args += list(self._gen_erase_nvs_bin())
+            try:
+                args += list(self._gen_erase_nvs_bin())
+            except ValueError:
+                if self._mode != 'merged':
+                    raise
+                logger.warning('erase_nvs requested but nvs partition not found; skipping')
         return args
 
     def flash_nvs_args(self, nvs_bin: str = '') -> t.List[str]:

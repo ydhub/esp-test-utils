@@ -35,10 +35,11 @@ esp-downbin ./build -p ttyUSB0 ttyUSB1     # specific ports
 esp-downbin ./build --all                  # every detected serial port
 esp-downbin ./build --range 0-10           # ttyUSB0 .. ttyUSB10 (Linux)
 esp-downbin ./build -b 921600 --no-erase-nvs
+esp-downbin ./merged.bin --merged -p ttyUSB0   # raw esptool merge-bin image
 ```
 
 Useful options: `--baudrate/-b`, `--max-workers`, `--force-no-stub`,
-`--verbose/-v`.
+`--merged`, `--verbose/-v`.
 
 ## `esp-copybin`
 

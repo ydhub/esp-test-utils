@@ -165,6 +165,7 @@ def test_download_partition_success(mock_run: mock.MagicMock, _mock_port: mock.M
         '"before": "default_reset", "after": "hard_reset"}}',
         encoding='utf-8',
     )
+    (bin_dir / 'bootloader').mkdir()
     (bin_dir / 'partition_table').mkdir()
     (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
     part_bin = tmp_path / 'nvs.bin'
@@ -206,6 +207,7 @@ def test_download_partition_failure_raises_runtime_error(
         '"before": "default_reset", "after": "hard_reset"}}',
         encoding='utf-8',
     )
+    (bin_dir / 'bootloader').mkdir()
     (bin_dir / 'partition_table').mkdir()
     (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
     part_bin = tmp_path / 'nvs.bin'
