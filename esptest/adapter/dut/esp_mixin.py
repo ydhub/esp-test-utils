@@ -158,10 +158,12 @@ class EspMixin(BaseProtocol):
         if log_port_baudrate:
             self.change_serial_config(baudrate=log_port_baudrate)
 
-    def download_partition(self, partition_bins: t.Dict[str, str]) -> None:
+    def download_partition(self, partition_bins: t.Dict[str, str], baud: t.Union[int, t.List[int]] = 0) -> None:
         """Download partitions to the dut.
         Args:
             partition_bins: A dictionary of partition names and bin paths.
+            baud: Download baud rate to use.
+                If given a list, will try each baud rate in order.
         """
         if self.bin_path and not self.downbin_tool:
             self.downbin_tool = DownBinTool(
@@ -176,7 +178,7 @@ class EspMixin(BaseProtocol):
             raise ValueError('download_partition is not available, bin path not set')
 
         with self.disable_redirect_thread():
-            self.downbin_tool.download_partition(partition_bins)
+            self.downbin_tool.download_partition(partition_bins, baud=baud)
         self.hard_reset()
 
     def start_redirect_thread(self) -> None:

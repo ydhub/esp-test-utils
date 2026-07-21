@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Tuple
 from unittest import mock
 
 import pytest
@@ -152,10 +153,12 @@ def test_download_bins_bin_config_baud_is_forwarded(mock_down_bin_tool: mock.Mag
     )
 
 
-@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
-@mock.patch.object(download_bin_module.subprocess, 'run')
-def test_download_partition_success(mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path) -> None:
-    """download_partition 在 esptool 成功时应直接返回。"""
+def _partition_bin_fixture(tmp_path: Path) -> Tuple[Path, Path]:
+    """Create a minimal ParseBinPath tree with one nvs partition bin.
+
+    Returns:
+        (bin_dir, part_bin)
+    """
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
     (bin_dir / 'flasher_args.json').write_text(
@@ -170,6 +173,14 @@ def test_download_partition_success(mock_run: mock.MagicMock, _mock_port: mock.M
     (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
     part_bin = tmp_path / 'nvs.bin'
     part_bin.write_bytes(b'\xaa' * 128)
+    return bin_dir, part_bin
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_success(mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path) -> None:
+    """download_partition 在 esptool 成功时应直接返回。"""
+    bin_dir, part_bin = _partition_bin_fixture(tmp_path)
 
     mock_completed = mock.MagicMock()
     mock_completed.returncode = 0
@@ -198,20 +209,7 @@ def test_download_partition_failure_raises_runtime_error(
     mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path
 ) -> None:
     """esptool 非零退出码时应抛出 RuntimeError（失败分支需正确拼接日志）。"""
-    bin_dir = tmp_path / 'bin'
-    bin_dir.mkdir()
-    (bin_dir / 'flasher_args.json').write_text(
-        '{"write_flash_args": ["--flash_mode", "dio", "--flash_size", "2MB", "--flash_freq", "40m"], '
-        '"flash_files": {}, '
-        '"extra_esptool_args": {"chip": "esp32", "stub": true, '
-        '"before": "default_reset", "after": "hard_reset"}}',
-        encoding='utf-8',
-    )
-    (bin_dir / 'bootloader').mkdir()
-    (bin_dir / 'partition_table').mkdir()
-    (bin_dir / 'partition_table' / 'partition-table.csv').write_text('nvs,data,nvs,0x9000,24K,\n', encoding='utf-8')
-    part_bin = tmp_path / 'nvs.bin'
-    part_bin.write_bytes(b'\xaa' * 128)
+    bin_dir, part_bin = _partition_bin_fixture(tmp_path)
 
     mock_completed = mock.MagicMock()
     mock_completed.returncode = 2
@@ -226,6 +224,83 @@ def test_download_partition_failure_raises_runtime_error(
             tool.download_partition({'nvs': str(part_bin)})
     finally:
         download_bin_module._get_bin_parser.cache_clear()
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_explicit_baud_overrides_tool_baud(
+    mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path
+) -> None:
+    """显式 baud 应覆盖 DownBinTool 构造时的 baud_list。"""
+    bin_dir, part_bin = _partition_bin_fixture(tmp_path)
+
+    mock_completed = mock.MagicMock()
+    mock_completed.returncode = 0
+    mock_completed.stdout = ''
+    mock_completed.stderr = ''
+    mock_run.return_value = mock_completed
+
+    download_bin_module._get_bin_parser.cache_clear()
+    try:
+        tool = DownBinTool(str(bin_dir), '/dev/ttyUSB0', baud=115200, esptool='python -m esptool')
+        tool.download_partition({'nvs': str(part_bin)}, baud=460800)
+    finally:
+        download_bin_module._get_bin_parser.cache_clear()
+
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert '460800' in call_args
+    assert '115200' not in call_args
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_retries_baud_list_on_failure(
+    mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path
+) -> None:
+    """baud 列表中前一次失败时应继续尝试下一个 baud，且 args 不累积。"""
+    bin_dir, part_bin = _partition_bin_fixture(tmp_path)
+
+    fail = mock.MagicMock(returncode=1, stdout='fail\n', stderr='')
+    ok = mock.MagicMock(returncode=0, stdout='', stderr='')
+    mock_run.side_effect = [fail, ok]
+
+    download_bin_module._get_bin_parser.cache_clear()
+    try:
+        tool = DownBinTool(str(bin_dir), '/dev/ttyUSB0', baud=115200, esptool='python -m esptool')
+        tool.download_partition({'nvs': str(part_bin)}, baud=[921600, 460800])
+    finally:
+        download_bin_module._get_bin_parser.cache_clear()
+
+    assert mock_run.call_count == 2
+    first_args = mock_run.call_args_list[0][0][0]
+    second_args = mock_run.call_args_list[1][0][0]
+    assert first_args.count('-b') == 1
+    assert second_args.count('-b') == 1
+    assert '921600' in first_args
+    assert '460800' in second_args
+    assert '921600' not in second_args
+
+
+@mock.patch.object(download_bin_module, 'compute_serial_port', return_value='/dev/ttyUSB0')
+@mock.patch.object(download_bin_module.subprocess, 'run')
+def test_download_partition_all_bauds_fail_raises(
+    mock_run: mock.MagicMock, _mock_port: mock.MagicMock, tmp_path: Path
+) -> None:
+    """baud 列表全部失败后应抛出 RuntimeError。"""
+    bin_dir, part_bin = _partition_bin_fixture(tmp_path)
+
+    mock_run.return_value = mock.MagicMock(returncode=2, stdout='out\n', stderr='err\n')
+
+    download_bin_module._get_bin_parser.cache_clear()
+    try:
+        tool = DownBinTool(str(bin_dir), '/dev/ttyUSB0', baud=115200, esptool='python -m esptool')
+        with pytest.raises(RuntimeError, match='Failed to download partitions'):
+            tool.download_partition({'nvs': str(part_bin)}, baud=[921600, 460800])
+    finally:
+        download_bin_module._get_bin_parser.cache_clear()
+
+    assert mock_run.call_count == 2
 
 
 def test_download_bin_reexports_bin_path_to_dir() -> None:
