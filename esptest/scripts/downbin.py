@@ -5,7 +5,7 @@ import re
 import sys
 
 from esptest.devices.serial_tools import get_all_serial_ports
-from esptest.tools.download_bin import bin_path_to_dir, download_bin_to_ports
+from esptest.tools.download_bin import bin_path_to_dir, bin_path_to_dir_or_bin, download_bin_to_ports
 
 
 def main() -> None:
@@ -24,6 +24,11 @@ def main() -> None:
     parser.add_argument('--max-workers', type=int, default=0, help='max download threads')
     parser.add_argument('--force-no-stub', action='store_true', help='force no stub')
     parser.add_argument('--check-no-stub', action='store_true', help='check no stub')
+    parser.add_argument(
+        '--merged',
+        action='store_true',
+        help='treat bin_path as a raw merged .bin (esptool merge-bin output)',
+    )
     parser.add_argument('-v', '--verbose', action='count', default=0, help='verbose output')
 
     args = parser.parse_args()
@@ -35,7 +40,10 @@ def main() -> None:
     )
 
     bin_path = args.bin_path or './build'
-    if not os.path.isdir(bin_path):
+    if args.merged:
+        bin_path = bin_path_to_dir_or_bin(bin_path, allow_merged=True, check_valid=True)
+        args.erase_nvs = False
+    elif not os.path.isdir(bin_path):
         try:
             bin_path = bin_path_to_dir(bin_path)
         except Exception as e:  # pylint: disable=broad-except

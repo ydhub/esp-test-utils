@@ -16,6 +16,7 @@ from esptest.logger import get_logger
 from esptest.utility.parse_bin_path import (  # pylint: disable=unused-import
     ParseBinPath,
     bin_path_to_dir,  # noqa: F401
+    bin_path_to_dir_or_bin,  # noqa: F401
 )
 
 logger = get_logger('download_bin')
