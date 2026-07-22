@@ -412,16 +412,21 @@ def parse_xunit_xml(
     )
 
 
+_KNOWN_CONFIG_KEYS = frozenset({'suite_name', 'package', 'file', 'hostname'})
+
+
 class XunitLogger:
+    _default_config: t.Dict[str, str] = {}
+
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         path: t.Union[str, Path],
-        suite_name: str = XUNIT_DEFAULT_TEST_SUITE,
+        suite_name: t.Optional[str] = None,
         file_name: str = XUNIT_RESULT_FILE_NAME,
         flush_interval: float = 2.0,
         timestamp: t.Optional[str] = None,
-        package: str = XUNIT_TEST_FRAMEWORK,
-        hostname: str = XUNIT_HOSTNAME,
+        package: t.Optional[str] = None,
+        hostname: t.Optional[str] = None,
         std_head_len: int = DEFAULT_STD_HEAD_LEN,
         std_tail_len: int = DEFAULT_STD_TAIL_LEN,
     ) -> None:
@@ -439,13 +444,21 @@ class XunitLogger:
         self.flush_interval = max(float(flush_interval), 0.0)
         self.std_head_len = max(int(std_head_len), 0)
         self.std_tail_len = max(int(std_tail_len), 0)
+        # Process-wide defaults first; explicit constructor args win.
+        resolved: t.Dict[str, str] = dict(self._default_config)
+        if suite_name is not None:
+            resolved['suite_name'] = suite_name
+        if package is not None:
+            resolved['package'] = package
+        if hostname is not None:
+            resolved['hostname'] = hostname
         self.test_suites = TestSuitesResult(
             test_suites=[
                 TestSuiteResult(
-                    name=suite_name,
+                    name=resolved.get('suite_name', XUNIT_DEFAULT_TEST_SUITE),
                     timestamp=timestamp or time.strftime(TIMESTAMP_FORMATS),
-                    package=package,
-                    hostname=hostname,
+                    package=resolved.get('package', XUNIT_TEST_FRAMEWORK),
+                    hostname=resolved.get('hostname', XUNIT_HOSTNAME),
                 )
             ]
         )
@@ -455,6 +468,11 @@ class XunitLogger:
         self._stderr = self._new_buffer()
         self._case_start_time: t.Optional[float] = None
         self._last_flush_time: t.Optional[float] = None
+        if 'file' in resolved:
+            self.test_suite.file = resolved['file']
+        for key, value in resolved.items():
+            if key not in _KNOWN_CONFIG_KEYS:
+                self.test_suite.properties[key] = value
 
     def _new_buffer(self) -> _BoundedText:
         return _BoundedText(self.std_head_len, self.std_tail_len)
@@ -479,8 +497,7 @@ class XunitLogger:
             return self.test_suite.test_cases[-1]
         return None
 
-    @_synchronized
-    def set_config(self, config: t.Dict[str, str]) -> None:
+    def _apply_config(self, config: t.Dict[str, str]) -> None:
         if 'suite_name' in config:
             self.test_suite.name = config['suite_name']
         if 'package' in config:
@@ -489,6 +506,41 @@ class XunitLogger:
             self.test_suite.file = config['file']
         if 'hostname' in config:
             self.test_suite.hostname = config['hostname']
+        for key, value in config.items():
+            if key not in _KNOWN_CONFIG_KEYS:
+                self.test_suite.properties[key] = value
+
+    @_synchronized
+    def set_config(self, config: t.Dict[str, str]) -> None:
+        """Set suite attrs for known keys; store unknown keys in properties."""
+        self._apply_config(config)
+
+    def get_config(self) -> t.Dict[str, str]:
+        """Return the effective suite config (known attrs + properties)."""
+        config: t.Dict[str, str] = {'suite_name': self.test_suite.name}
+        if self.test_suite.package is not None:
+            config['package'] = self.test_suite.package
+        if self.test_suite.file is not None:
+            config['file'] = self.test_suite.file
+        if self.test_suite.hostname is not None:
+            config['hostname'] = self.test_suite.hostname
+        config.update(self.test_suite.properties)
+        return config
+
+    @classmethod
+    def set_default_config(cls, config: t.Dict[str, str]) -> None:
+        """Merge into the process-wide default config applied by every new instance."""
+        cls._default_config.update(config)
+
+    @classmethod
+    def get_default_config(cls) -> t.Dict[str, str]:
+        """Return a copy of the process-wide default config applied by every new instance."""
+        return dict(cls._default_config)
+
+    @classmethod
+    def clear_default_config(cls) -> None:
+        """Clear the process-wide default config."""
+        cls._default_config.clear()
 
     @_synchronized
     def begin_case(self, case_id: str, classname: str = '', category: t.Optional[str] = None) -> None:
