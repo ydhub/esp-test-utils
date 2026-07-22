@@ -168,7 +168,22 @@ def test_download_partition_creates_tool_from_bin_path() -> None:
         EspMixin.download_partition(harness, {'nvs': '/tmp/nvs.bin'})  # type: ignore[arg-type]
 
     mock_tool_cls.assert_called_once_with('/tmp/app.bin', '/dev/ttyUSB1', esptool='esptool')
-    tool.download_partition.assert_called_once_with({'nvs': '/tmp/nvs.bin'})
+    tool.download_partition.assert_called_once_with({'nvs': '/tmp/nvs.bin'}, baud=0)
+    assert harness.hard_reset_calls == 1
+
+
+def test_download_partition_forwards_baud() -> None:
+    tool = mock.MagicMock()
+    tool.force_no_stub = False
+    esp = _make_esp(is_stub=True, chip_name='ESP32')
+    cfg = DutConfig(name='dut', download_device='/dev/ttyUSB1', use_esptool='esptool')
+    cfg.bin_path = '/tmp/app.bin'
+    harness = EspMixinHarness(cfg, esp=esp)
+
+    with mock.patch.object(esp_mixin_module, 'DownBinTool', return_value=tool):
+        EspMixin.download_partition(harness, {'nvs': '/tmp/nvs.bin'}, baud=[460800, 115200])  # type: ignore[arg-type]
+
+    tool.download_partition.assert_called_once_with({'nvs': '/tmp/nvs.bin'}, baud=[460800, 115200])
     assert harness.hard_reset_calls == 1
 
 

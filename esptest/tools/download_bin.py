@@ -29,6 +29,19 @@ def _get_bin_parser(bin_path: str, parttool: str) -> ParseBinPath:
     return ParseBinPath(bin_path, parttool)
 
 
+@lru_cache()
+def _get_efuse_summary(port: str, espefuse: str = '') -> str:
+    espefuse = espefuse or f'{sys.executable} -m espefuse'
+    try:
+        summary = subprocess.check_output(
+            espefuse.split() + ['--port', port, 'summary'], stderr=subprocess.STDOUT, text=True
+        )
+    except subprocess.CalledProcessError as err:
+        logger.error(err.output)
+        raise RuntimeError(f'Failed to get efuse information from {port} with {espefuse}') from err
+    return summary.strip()
+
+
 def _filter_esptool_log(log: str) -> str:
     lines = log.splitlines(keepends=True)
     new_log = ''
@@ -108,14 +121,7 @@ class DownBinTool:
         return args
 
     def download(self) -> None:
-        efuse_cmd = self.espefuse.split()
-        try:
-            summary = subprocess.check_output(
-                efuse_cmd + ['--port', self.port, 'summary'], stderr=subprocess.STDOUT, text=True
-            )
-        except subprocess.CalledProcessError as err:
-            logger.error(err.output)
-            raise RuntimeError(f'Failed to get efuse information from {self.port}') from err
+        summary = _get_efuse_summary(self.port, self.espefuse)
         encrypted_indicator = ' [encrypted]' if check_flash_encrypted(summary) else ''
         secure_boot_indicator = ' [secure_boot]' if check_secure_boot_enabled(summary) else ''
 
@@ -142,27 +148,34 @@ class DownBinTool:
         logger.error(download_log)
         raise RuntimeError(f'Failed to download Bin to {self.port}')
 
-    def download_partition(self, partition_bins: t.Dict[str, str]) -> None:
+    def download_partition(self, partition_bins: t.Dict[str, str], baud: t.Union[int, t.List[int]] = 0) -> None:
         """
-        Download partitions from bin file to device, use slower baud rate without retry.
+        Download partitions from bin file to device.
 
         Args:
             partition_bins (t.Dict[str, str]): A dictionary of partition name and partition bin file path.
+            baud: Download baud rate to use. ``0`` (default) uses ``self.baud_list``.
+                If given a list, will try each baud rate in order.
         """
-        args = self._base_esptool_args
-        baud = self.baud_list[-1]
-        args += ['-b', f'{baud}']
-        args += self.bin_parser.flash_partition_args(partition_bins)
-        ret = subprocess.run(args, capture_output=True, text=True, check=False)
-        if ret.returncode == 0:
-            logger.info(f'Download success: [{self.port}@{baud}]')
-            return  # succeed
-        # failed
+        if isinstance(baud, int):
+            baud_list = [baud] if baud > 0 else self.baud_list
+        else:
+            baud_list = baud
+
         download_log = ''
-        download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
-        download_log += f'\nDownload failed: [{self.port}@{baud}]\n'
-        esptool_msg = ret.stdout + ret.stderr
-        download_log += f'esptool output: {_filter_esptool_log(esptool_msg)}'
+        for baud_to_use in baud_list:
+            args = self._base_esptool_args
+            args += ['-b', f'{baud_to_use}']
+            args += self.bin_parser.flash_partition_args(partition_bins)
+            ret = subprocess.run(args, capture_output=True, text=True, check=False)
+            if ret.returncode == 0:
+                logger.info(f'Download success: [{self.port}@{baud_to_use}]')
+                return  # succeed
+            # failed — try next baud
+            download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
+            download_log += f'\nDownload failed: [{self.port}@{baud_to_use}]\n'
+            esptool_msg = ret.stdout + ret.stderr
+            download_log += f'esptool output: {_filter_esptool_log(esptool_msg)}'
         logger.error(download_log)
         raise RuntimeError(f'Failed to download partitions {list(partition_bins.keys())} to {self.port}')
 
