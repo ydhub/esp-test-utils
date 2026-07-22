@@ -29,6 +29,19 @@ def _get_bin_parser(bin_path: str, parttool: str) -> ParseBinPath:
     return ParseBinPath(bin_path, parttool)
 
 
+@lru_cache()
+def _get_efuse_summary(port: str, espefuse: str = '') -> str:
+    espefuse = espefuse or f'{sys.executable} -m espefuse'
+    try:
+        summary = subprocess.check_output(
+            espefuse.split() + ['--port', port, 'summary'], stderr=subprocess.STDOUT, text=True
+        )
+    except subprocess.CalledProcessError as err:
+        logger.error(err.output)
+        raise RuntimeError(f'Failed to get efuse information from {port} with {espefuse}') from err
+    return summary.strip()
+
+
 def _filter_esptool_log(log: str) -> str:
     lines = log.splitlines(keepends=True)
     new_log = ''
@@ -108,14 +121,7 @@ class DownBinTool:
         return args
 
     def download(self) -> None:
-        efuse_cmd = self.espefuse.split()
-        try:
-            summary = subprocess.check_output(
-                efuse_cmd + ['--port', self.port, 'summary'], stderr=subprocess.STDOUT, text=True
-            )
-        except subprocess.CalledProcessError as err:
-            logger.error(err.output)
-            raise RuntimeError(f'Failed to get efuse information from {self.port}') from err
+        summary = _get_efuse_summary(self.port, self.espefuse)
         encrypted_indicator = ' [encrypted]' if check_flash_encrypted(summary) else ''
         secure_boot_indicator = ' [secure_boot]' if check_secure_boot_enabled(summary) else ''
 

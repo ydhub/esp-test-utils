@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from typing import Tuple
 from unittest import mock
@@ -301,6 +302,55 @@ def test_download_partition_all_bauds_fail_raises(
         download_bin_module._get_bin_parser.cache_clear()
 
     assert mock_run.call_count == 2
+
+
+@mock.patch.object(download_bin_module.subprocess, 'check_output')
+def test_get_efuse_summary_calls_espefuse_and_strips(mock_check_output: mock.MagicMock) -> None:
+    """_get_efuse_summary 应调用 espefuse summary，并返回 strip 后的文本。"""
+    mock_check_output.return_value = '  FLASH_CRYPT_CNT (0b1)  \n'
+    download_bin_module._get_efuse_summary.cache_clear()
+    try:
+        summary = download_bin_module._get_efuse_summary('/dev/ttyUSB0', 'python -m espefuse')
+    finally:
+        download_bin_module._get_efuse_summary.cache_clear()
+
+    assert summary == 'FLASH_CRYPT_CNT (0b1)'
+    mock_check_output.assert_called_once_with(
+        ['python', '-m', 'espefuse', '--port', '/dev/ttyUSB0', 'summary'],
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+@mock.patch.object(download_bin_module.subprocess, 'check_output')
+def test_get_efuse_summary_is_cached_per_port_and_tool(mock_check_output: mock.MagicMock) -> None:
+    """相同 port/espefuse 应命中 lru_cache，仅调用一次 subprocess。"""
+    mock_check_output.return_value = 'summary'
+    download_bin_module._get_efuse_summary.cache_clear()
+    try:
+        first = download_bin_module._get_efuse_summary('/dev/ttyUSB0', 'python -m espefuse')
+        second = download_bin_module._get_efuse_summary('/dev/ttyUSB0', 'python -m espefuse')
+        other = download_bin_module._get_efuse_summary('/dev/ttyUSB1', 'python -m espefuse')
+    finally:
+        download_bin_module._get_efuse_summary.cache_clear()
+
+    assert first == second == 'summary'
+    assert other == 'summary'
+    assert mock_check_output.call_count == 2
+
+
+@mock.patch.object(download_bin_module.subprocess, 'check_output')
+def test_get_efuse_summary_raises_runtime_error_on_failure(mock_check_output: mock.MagicMock) -> None:
+    """espefuse 失败时应抛出 RuntimeError，并包含 port/espefuse 信息。"""
+    mock_check_output.side_effect = subprocess.CalledProcessError(
+        1, ['python', '-m', 'espefuse'], output='efuse failed\n'
+    )
+    download_bin_module._get_efuse_summary.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match='Failed to get efuse information from /dev/ttyUSB0'):
+            download_bin_module._get_efuse_summary('/dev/ttyUSB0', 'python -m espefuse')
+    finally:
+        download_bin_module._get_efuse_summary.cache_clear()
 
 
 def test_download_bin_reexports_bin_path_to_dir() -> None:
