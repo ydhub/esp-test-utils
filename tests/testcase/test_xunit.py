@@ -174,6 +174,122 @@ def test_xunit_logger_accepts_suite_metadata_from_init(tmp_path: Path) -> None:
     assert suite.hostname == 'custom-host'
 
 
+def test_set_config_stores_unknown_keys_as_suite_properties(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path, suite_name='wifi-suite')
+    logger.set_config(
+        {
+            'suite_name': 'renamed-suite',
+            'package': 'esp-test-utils',
+            'file': 'test_wifi.py',
+            'hostname': 'ci-host',
+            'target': 'esp32',
+            'idf_version': '5.3',
+        }
+    )
+
+    logger.begin_case('test_connect')
+    logger.end_case()
+
+    suite = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0]
+    assert suite.name == 'renamed-suite'
+    assert suite.package == 'esp-test-utils'
+    assert suite.file == 'test_wifi.py'
+    assert suite.hostname == 'ci-host'
+    assert suite.properties == {'target': 'esp32', 'idf_version': '5.3'}
+
+
+def test_set_default_config_merges_on_init_and_persists(tmp_path: Path) -> None:
+    saved = XunitLogger.get_default_config()
+    try:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config({'package': 'default-pkg', 'file': 'default_file.py', 'target': 'esp32'})
+        assert XunitLogger.get_default_config() == {
+            'package': 'default-pkg',
+            'file': 'default_file.py',
+            'target': 'esp32',
+        }
+
+        first = XunitLogger(tmp_path / 'first', suite_name='suite-a')
+        assert first.get_config()['package'] == 'default-pkg'
+        assert first.get_config()['file'] == 'default_file.py'
+        assert first.get_config()['target'] == 'esp32'
+        assert first.get_config()['suite_name'] == 'suite-a'
+
+        # default config is not consumed; a second instance still gets it
+        second = XunitLogger(tmp_path / 'second', suite_name='suite-b')
+        assert second.test_suite.package == 'default-pkg'
+        assert second.test_suite.properties['target'] == 'esp32'
+
+        first.set_config({'hostname': 'host-1', 'board': 'devkit'})
+        cfg = first.get_config()
+        assert cfg['hostname'] == 'host-1'
+        assert cfg['board'] == 'devkit'
+        assert cfg['target'] == 'esp32'
+    finally:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config(saved)
+
+
+def test_get_default_config_returns_a_copy() -> None:
+    saved = XunitLogger.get_default_config()
+    try:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config({'target': 'esp32'})
+        cfg = XunitLogger.get_default_config()
+        cfg['target'] = 'mutated'
+        cfg['extra'] = 'leak'
+        assert XunitLogger.get_default_config() == {'target': 'esp32'}
+    finally:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config(saved)
+
+
+def test_clear_default_config_resets_process_defaults(tmp_path: Path) -> None:
+    saved = XunitLogger.get_default_config()
+    try:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config({'package': 'default-pkg', 'target': 'esp32'})
+        XunitLogger.clear_default_config()
+        assert XunitLogger.get_default_config() == {}
+
+        logger = XunitLogger(tmp_path)
+        assert 'target' not in logger.get_config()
+        assert logger.test_suite.package != 'default-pkg'
+    finally:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config(saved)
+
+
+def test_constructor_args_override_default_config(tmp_path: Path) -> None:
+    saved = XunitLogger.get_default_config()
+    try:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config(
+            {
+                'suite_name': 'default-suite',
+                'package': 'default-pkg',
+                'hostname': 'default-host',
+                'file': 'default_file.py',
+                'target': 'esp32',
+            }
+        )
+        logger = XunitLogger(
+            tmp_path,
+            suite_name='explicit-suite',
+            package='explicit-pkg',
+            hostname='explicit-host',
+        )
+        cfg = logger.get_config()
+        assert cfg['suite_name'] == 'explicit-suite'
+        assert cfg['package'] == 'explicit-pkg'
+        assert cfg['hostname'] == 'explicit-host'
+        assert cfg['file'] == 'default_file.py'
+        assert cfg['target'] == 'esp32'
+    finally:
+        XunitLogger.clear_default_config()
+        XunitLogger.set_default_config(saved)
+
+
 def test_begin_case_records_started_at(tmp_path: Path) -> None:
     logger = XunitLogger(tmp_path)
 
