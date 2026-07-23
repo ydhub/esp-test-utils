@@ -179,3 +179,11 @@ class SerialPort(SerialPortMixin, BasePort):
         if not dut:
             self.INIT_START_REDIRECT_THREAD = False  # pylint: disable=invalid-name
         super().__init__(dut, name, log_file, **kwargs)
+
+    def __str__(self) -> str:
+        return (
+            f'SerialPort<device={self.raw_port.port},'
+            f'baudrate={self.raw_port.baudrate},'
+            f'timeout={self.raw_port.timeout},'
+            f'log_file={self.log_file}>'
+        )

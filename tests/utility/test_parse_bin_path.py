@@ -18,12 +18,31 @@ from esptest.utility.merged_bin import probe_merged_bin
 from esptest.utility.parse_bin_path import (
     ParseBinPath,
     SDKConfig,
+    _parse_partition_table_to_csv,
     bin_path_to_dir,
     bin_path_to_dir_or_bin,
     get_baud_from_bin_path,
 )
 
 TEST_FILE_PATH = Path(__file__).parent / '_files'
+
+
+def test_parse_partition_table_does_not_write_to_console(tmp_path: Path, capfd: pytest.CaptureFixture) -> None:
+    part_csv = tmp_path / 'partition-table.csv'
+    parttool = tmp_path / 'parttool.py'
+    parttool.write_text(
+        'import pathlib, sys\n'
+        "print('Parsing binary partition input...')\n"
+        "print('Verifying table...', file=sys.stderr)\n"
+        "pathlib.Path(sys.argv[2]).write_text('nvs,data,nvs,0x9000,24K,\\n')\n",
+        encoding='utf-8',
+    )
+
+    assert _parse_partition_table_to_csv(str(parttool), 'partition-table.bin', str(part_csv)) == str(part_csv)
+
+    captured = capfd.readouterr()
+    assert captured.out == ''
+    assert captured.err == ''
 
 
 @pytest.fixture()
@@ -200,7 +219,11 @@ def test_parse_partitions_raises_when_generated_csv_not_found(
     os.remove(str(partition_file))
     assert not partition_file.is_file()
 
-    monkeypatch.setattr(parse_bin_path_module.subprocess, 'check_call', lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        parse_bin_path_module.subprocess,
+        'run',
+        lambda *args, **kwargs: MagicMock(returncode=0, stdout=b''),
+    )
     monkeypatch.setattr(parse_bin_path_module.time, 'sleep', lambda *_args, **_kwargs: None)
 
     parser = ParseBinPath(test_bin_path)

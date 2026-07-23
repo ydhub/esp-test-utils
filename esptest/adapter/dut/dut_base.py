@@ -20,6 +20,7 @@ from ...utility.parse_bin_path import ParseBinPath, get_baud_from_bin_path
 from ..port.base_port import BasePort, RawPort
 from ..port.data_monitor_mixin import DataMonitorMixin
 from ..port.serial_port import SerialPort
+from .download_log import default_download_log_file
 
 logger = get_logger('dut')
 DEFAULT_SERIAL_CONFIGS = {'timeout': 0.005}
@@ -33,7 +34,7 @@ class DutConfig:
     baudrate_from_bin_path: bool = True  # always get baudrate from bin path if bin_path is set
     serial_configs: t.Optional[t.Dict[str, t.Any]] = None  # serial configs, eg: {'bytesize': 8, 'timeout': 0.1}
     # capabilities
-    support_esptool: bool = False  # esp port or serial port
+    support_esptool: bool = False  # hard_reset / download_bin via esptool (log gets esp only if download==device)
     esptool_stub: bool = True  # Try to get stub from bin_path if bin_path was set
     esptool_chip: str = 'auto'  # Try to get chip from bin_path if bin_path was set
     create_redirect_thread: bool = True  # create redirect thread or not
@@ -44,6 +45,9 @@ class DutConfig:
     use_esptool: str = ''  # For FPGA, use specific esptool
     download_device: str = ''  # default = base port device
     download_baudrate: int = 0  # default ESPBAUD
+    download_serial_configs: t.Optional[t.Dict[str, t.Any]] = None  # download UART pyserial settings
+    save_download_log: bool = True  # dual-UART: save download-port serial / esptool logs
+    download_log_file: str = ''  # default: same dir as log_file, <stem>_download.log
     # dut (uart) log
     log_path: t.Union[str, Path] = ''  # default
     log_file: str = ''  # default: auto-generate  log_path + <name>[_<second>]_<timestamp>.log
@@ -71,6 +75,11 @@ class DutConfig:
         if self.serial_configs:
             _serial_configs.update(self.serial_configs)
         self.serial_configs = _serial_configs
+        # download serial configs (separate from console log UART)
+        _download_serial_configs = DEFAULT_SERIAL_CONFIGS.copy()
+        if self.download_serial_configs:
+            _download_serial_configs.update(self.download_serial_configs)
+        self.download_serial_configs = _download_serial_configs
         # bin_path and get variables from bin path
         if self.bin_path:
             self.bin_path = Path(self.bin_path).expanduser().resolve()
@@ -85,6 +94,9 @@ class DutConfig:
         # download device
         if not self.download_device:
             self.download_device = self.device
+        # dual-UART download log path (same directory as dut log_file)
+        if not self.download_log_file:
+            self.download_log_file = default_download_log_file(self)
 
     def _auto_gen_name(self) -> None:
         if self.opened_port:

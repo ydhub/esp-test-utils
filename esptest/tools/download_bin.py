@@ -1,6 +1,7 @@
 import asyncio
 import concurrent
 import concurrent.futures
+import os
 import re
 import subprocess
 import sys
@@ -87,6 +88,7 @@ class DownBinTool:
         erase_nvs: bool = True,
         force_no_stub: bool = False,
         check_no_stub: bool = False,
+        output_log: str = '',
     ):  # pylint: disable=too-many-positional-arguments,too-many-arguments
         self.bin_path = bin_path
         self.port = compute_serial_port(port, strict=True)
@@ -100,6 +102,18 @@ class DownBinTool:
         self.bin_parser = _get_bin_parser(bin_path, parttool)
         self.force_no_stub = force_no_stub
         self.check_no_stub = check_no_stub
+        self.output_log = output_log
+
+    def _append_output_log(self, text: str) -> None:
+        if not self.output_log or not text:
+            return
+        parent = os.path.dirname(self.output_log)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(self.output_log, 'a', encoding='utf-8') as log_f:
+            if not text.endswith('\n'):
+                text = text + '\n'
+            log_f.write(text)
 
     @property
     def _base_esptool_args(self) -> t.List[str]:
@@ -135,17 +149,22 @@ class DownBinTool:
 
             logger.info(f'Downloading {self.port}@{baud}{encrypted_indicator}{secure_boot_indicator}: {self.bin_path}')
             logger.debug(f'esptool cmd: {" ".join(args)}')
+            self._append_output_log(f'esptool cmd: {" ".join(args)}')
             # get return code rather than check
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
+            esptool_msg = ret.stdout + ret.stderr
+            if esptool_msg:
+                self._append_output_log(f'esptool output:\n{_filter_esptool_log(esptool_msg)}')
             if ret.returncode == 0:
                 logger.info(f'Download success: [{self.port}@{baud}]')
+                self._append_output_log(f'Download success: [{self.port}@{baud}]')
                 return  # succeed
             # failed
             download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
             download_log += f'\nDownload failed: [{self.port}@{baud}]\n'
-            esptool_msg = ret.stdout + ret.stderr
             download_log += f'esptool output: {_filter_esptool_log(esptool_msg)}'
         logger.error(download_log)
+        self._append_output_log(download_log)
         raise RuntimeError(f'Failed to download Bin to {self.port}')
 
     def download_partition(self, partition_bins: t.Dict[str, str], baud: t.Union[int, t.List[int]] = 0) -> None:
@@ -167,16 +186,21 @@ class DownBinTool:
             args = self._base_esptool_args
             args += ['-b', f'{baud_to_use}']
             args += self.bin_parser.flash_partition_args(partition_bins)
+            self._append_output_log(f'esptool cmd: {" ".join(args)}')
             ret = subprocess.run(args, capture_output=True, text=True, check=False)
+            esptool_msg = ret.stdout + ret.stderr
+            if esptool_msg:
+                self._append_output_log(f'esptool output:\n{_filter_esptool_log(esptool_msg)}')
             if ret.returncode == 0:
                 logger.info(f'Download success: [{self.port}@{baud_to_use}]')
+                self._append_output_log(f'Download success: [{self.port}@{baud_to_use}]')
                 return  # succeed
             # failed — try next baud
             download_log += f'esptool cmd failed ({ret.returncode}): ' + ' '.join(args)
             download_log += f'\nDownload failed: [{self.port}@{baud_to_use}]\n'
-            esptool_msg = ret.stdout + ret.stderr
             download_log += f'esptool output: {_filter_esptool_log(esptool_msg)}'
         logger.error(download_log)
+        self._append_output_log(download_log)
         raise RuntimeError(f'Failed to download partitions {list(partition_bins.keys())} to {self.port}')
 
 

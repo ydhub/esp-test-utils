@@ -82,7 +82,7 @@ def bin_path_to_dir_or_bin(
         return resolved
 
     if _is_zip_ref(bin_path):
-        logger.warning(f'bin path {bin_path} is not a directory, trying to convert to directory')
+        logger.info(f'bin path {bin_path} is not a directory, trying to convert to directory')
         local_base = os.path.basename(bin_path)
         if hasattr(local_base, 'removesuffix'):
             _bin_name = local_base.removesuffix('.zip')
@@ -147,7 +147,8 @@ def _parse_partition_table_to_csv(parttool_path: str, part_bin: str, part_csv: s
     logger.debug(f'Generating partition-table.csv to {part_csv}')
     try:
         _cmd = ['python', parttool_path, str(part_bin), str(part_csv)]
-        subprocess.check_call(_cmd, shell=False)
+        output = subprocess.check_output(_cmd, stderr=subprocess.STDOUT, shell=False)
+        logger.debug(f'parse partition-table.csv output: {output.decode("utf-8")}')
         # make sure partition-table.csv is generated
         for _ in range(20):
             if Path(part_csv).is_file():

@@ -1,3 +1,4 @@
+import contextlib
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -26,6 +27,9 @@ class EspPortInfo:
     chip_description: str = ''
     mac: str = ''
     chip_version: str = ''
+    # major*100+minor; same scale as bootloader min_rev_full / max_rev_full.
+    # -1 means unknown / not read.
+    chip_rev_full: int = -1
     chip_xtal: str = ''
     flash_id: str = ''
     flash_size: str = ''
@@ -50,7 +54,10 @@ def _get_esp_port_info(esp: esptool.ESPLoader) -> t.Dict[str, t.Any]:
     try:
         _info['mac'] = ':'.join([f'{i:02x}' for i in esp.read_mac()])
         _info['chip_description'] = esp.get_chip_description()
-        _info['chip_version'] = f'v{esp.get_major_chip_version()}.{esp.get_minor_chip_version()}'
+        major = int(esp.get_major_chip_version())
+        minor = int(esp.get_minor_chip_version())
+        _info['chip_version'] = f'v{major}.{minor}'
+        _info['chip_rev_full'] = major * 100 + minor
         _info['chip_xtal'] = f'{esp.get_crystal_freq()}'
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error(f'[{esp.port}] Get esp port info failed {type(e)}: {str(e)}')
@@ -69,24 +76,41 @@ def _get_esp_port_info(esp: esptool.ESPLoader) -> t.Dict[str, t.Any]:
     return _info
 
 
+@contextlib.contextmanager
+def esptool_detect_chip(port: str, **kwargs: t.Any) -> t.Generator[esptool.ESPLoader, None, None]:
+    """Detect chip on ``port`` with esptool 4.7 / 4.8+ cleanup compatibility.
+
+    Extra keyword arguments are forwarded to ``esptool.detect_chip``
+    (e.g. ``baud`` / ``baudrate``, ``connect_attempts``, ``connect_mode``,
+    ``trace_enabled``). ``baudrate`` is accepted as an alias of ``baud``.
+
+    esptool >= 4.8 provides ``ESPLoader`` context-manager support; older 4.7
+    releases require closing ``esp._port`` manually.
+    """
+    if 'baudrate' in kwargs:
+        if 'baud' not in kwargs:
+            kwargs['baud'] = kwargs.pop('baudrate')
+        else:
+            kwargs.pop('baudrate')
+    if Version(esptool.__version__) > Version('4.8.dev3'):
+        with esptool.detect_chip(port, **kwargs) as esp:
+            yield esp
+    else:
+        esp = esptool.detect_chip(port, **kwargs)
+        try:
+            yield esp
+        finally:
+            esp._port.close()  # pylint: disable=protected-access
+
+
 @suppress_stdout()
 def detect_port_info_no_cache(device: str, location: str = '', description: str = '') -> EspPortInfo:
     _info = {}
     _support_esptool = True
     try:
-        if Version(esptool.__version__) > Version('4.8.dev3'):
-            # Newer esptool supports context manager
-            with esptool.detect_chip(device) as esp:
-                _info = _get_esp_port_info(esp)
-                esp.hard_reset()
-        else:
-            # old esptool <= 4.7 — close even if info/reset raises SerialException
-            esp = esptool.detect_chip(device)
-            try:
-                _info = _get_esp_port_info(esp)
-                esp.hard_reset()
-            finally:
-                esp._port.close()  # pylint: disable=protected-access
+        with esptool_detect_chip(device) as esp:
+            _info = _get_esp_port_info(esp)
+            esp.hard_reset()
         _info['serial_description'] = description or ''
         logger.info(f'Auto-Detect chip {device}: {_info}')
     except (esptool.util.FatalError, serial.SerialException) as e:
