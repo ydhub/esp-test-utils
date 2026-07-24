@@ -415,7 +415,7 @@ def parse_xunit_xml(
 _KNOWN_CONFIG_KEYS = frozenset({'suite_name', 'package', 'file', 'hostname'})
 
 
-class XunitLogger:
+class XunitLogger:  # pylint: disable=too-many-public-methods
     _default_config: t.Dict[str, str] = {}
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -514,6 +514,13 @@ class XunitLogger:
     def set_config(self, config: t.Dict[str, str]) -> None:
         """Set suite attrs for known keys; store unknown keys in properties."""
         self._apply_config(config)
+
+    @_synchronized
+    def set_case_properties(self, properties: t.Dict[str, str]) -> None:
+        """Merge properties into the running test case without flushing."""
+        if self.running_case is None:
+            raise RuntimeError('No running test case')
+        self.running_case.properties.update(properties)
 
     def get_config(self) -> t.Dict[str, str]:
         """Return the effective suite config (known attrs + properties)."""

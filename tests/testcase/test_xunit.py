@@ -290,6 +290,32 @@ def test_constructor_args_override_default_config(tmp_path: Path) -> None:
         XunitLogger.set_default_config(saved)
 
 
+def test_set_case_properties_merges_without_immediate_flush(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_connect', category='wifi')
+
+    logger.set_case_properties({'target': 'esp32', 'config': 'debug'})
+    logger.set_case_properties({'config': 'release'})
+
+    before_end = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME)
+    assert 'target' not in before_end.test_suites[0].test_cases[0].properties
+
+    report_path = logger.end_case()
+    case = parse_xunit_xml(report_path).test_suites[0].test_cases[0]
+    assert case.properties == {
+        'category': 'wifi',
+        'target': 'esp32',
+        'config': 'release',
+    }
+
+
+def test_set_case_properties_requires_running_case(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path)
+
+    with pytest.raises(RuntimeError, match='No running test case'):
+        logger.set_case_properties({'target': 'esp32'})
+
+
 def test_begin_case_records_started_at(tmp_path: Path) -> None:
     logger = XunitLogger(tmp_path)
 

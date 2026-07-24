@@ -22,6 +22,7 @@ logger.set_config({'package': 'esp-test-utils', 'file': 'test_wifi.py'})
 
 # passing case
 logger.begin_case('test_connect', classname='wifi.station')
+logger.set_case_properties({'target': 'esp32', 'config': 'release'})
 logger.add_sys_out('connecting to AP ...')
 logger.end_case()
 
@@ -37,6 +38,11 @@ logger.end_case()
 
 report_path = logger.flush(force=True)
 ```
+
+`set_case_properties()` merges values into the currently running case; a later
+value overwrites an existing key. Calling it without a running case raises
+`RuntimeError`. It does not flush immediately—the properties are written by a
+later periodic or explicit flush, or when `end_case()` finishes the case.
 
 `end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
 marks it SKIPPED.
