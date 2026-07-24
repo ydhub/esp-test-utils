@@ -4,6 +4,7 @@ from functools import lru_cache
 
 import esptool
 import serial
+from esptool import FatalError
 from packaging.version import Version
 from serial.tools.list_ports_common import ListPortInfo
 
@@ -113,7 +114,7 @@ def detect_port_info_no_cache(device: str, location: str = '', description: str 
             esp.hard_reset()
         _info['serial_description'] = description or ''
         logger.info(f'Auto-Detect chip {device}: {_info}')
-    except (esptool.util.FatalError, serial.SerialException) as e:
+    except (FatalError, serial.SerialException) as e:
         # SerialTimeoutException (subclass of SerialException) can happen on
         # non-UART bridges or busy ports; must not abort list_all_esp_ports.
         logger.warning(f'Detect {device} via esptool failed {type(e)}: {str(e)}')

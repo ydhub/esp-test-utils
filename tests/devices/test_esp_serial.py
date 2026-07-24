@@ -3,6 +3,7 @@ from unittest import mock
 import esptool
 import pytest
 import serial
+from esptool import FatalError
 
 from esptest.devices import esp_serial
 from esptest.devices.esp_serial import (
@@ -167,7 +168,7 @@ def test_detect_port_info_no_cache_success() -> None:
 
 
 def test_detect_port_info_no_cache_fatal_error() -> None:
-    with mock.patch.object(esp_serial.esptool, 'detect_chip', side_effect=esptool.util.FatalError('boom')):
+    with mock.patch.object(esp_serial.esptool, 'detect_chip', side_effect=FatalError('boom')):
         result = detect_port_info_no_cache('/dev/ttyUSB1', 'loc2', 'serial-desc')
 
     assert result.support_esptool is False
