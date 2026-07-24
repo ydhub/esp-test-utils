@@ -61,7 +61,9 @@ Key points:
 
 ## Where to go next
 
-- {doc}`guides/dut` — the full DUT API, `DutConfig`, and customization.
+- {doc}`guides/dut` — the full DUT API, `DutConfig`, ESP helpers
+  (`get_chip_info`, `hard_reset`, dual-UART download/log ports), and
+  customization.
 - {doc}`guides/data_monitor` — react to device output as it streams in.
 - {doc}`guides/xunit_report` — record results as xUnit XML.
 - {doc}`guides/cli_tools` — the bundled `esp-*` command line tools.

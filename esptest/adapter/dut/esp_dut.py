@@ -7,7 +7,7 @@ from ...devices.serial_tools import compute_serial_port
 from ..port.base_port import BasePort, RawPort
 from ..port.serial_port import SerialPort
 from .dut_base import DutBase, DutConfig
-from .esp_mixin import EspMixin, EspSerial
+from .esp_mixin import EspMixin, EspSerial, log_port_hosts_esp
 from .mac_mixin import MacMixin
 
 
@@ -21,11 +21,12 @@ class EspDut(_DefaultMixins, DutBase):
         self._close_redirect_thread_when_exit = True
         self._close_base_port_when_exit = True
         self._close_raw_port_when_exit = True
-        self._close_download_port_when_exit = False
+        self._close_download_port_when_exit = True
         super().__init__(dut_config=dut_config, **kwargs)
 
     def _post_init(self) -> None:
         self._base_port_proxy = self._create_base_port()
+        self._download_port = self._create_download_port()
         super()._post_init()
 
     def _create_base_port(self) -> t.Optional[BasePort]:
@@ -49,8 +50,10 @@ class EspDut(_DefaultMixins, DutBase):
 
         assert _config.device, 'No device provided in DutConfig'
         _device = compute_serial_port(_config.device, strict=True)
-        if _config.support_esptool:
-            # create esp port
+        # support_esptool enables hard_reset / download_bin via esptool.
+        # Persist esp on the log UART only when download_device is the same port;
+        # otherwise keep a plain serial log port (dual-UART).
+        if log_port_hosts_esp(_config):
             _esp = self._esptool_open_port(_device, _config.baudrate, chip=_config.esptool_chip)
             _esp._port.timeout = _config.serial_read_timeout  # pylint: disable=protected-access
             _esp.hard_reset()
@@ -68,6 +71,10 @@ class EspDut(_DefaultMixins, DutBase):
         return SerialPort(self._raw_port, name=_config.name, log_file=_config.log_file, **self._kwargs)
 
     def close(self) -> None:
+        download_port = getattr(self, '_download_port', None)
+        if getattr(self, '_close_download_port_when_exit', False) and download_port:
+            download_port.close()
+            self._download_port = None
         if self._close_base_port_when_exit:
             assert self._base_port_proxy
             self._base_port_proxy.close()

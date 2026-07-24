@@ -11,6 +11,7 @@ from esptest.devices.esp_serial import (
     _get_esp_port_info,
     detect_one_port,
     detect_port_info_no_cache,
+    esptool_detect_chip,
     get_available_ports,
     list_all_esp_ports,
 )
@@ -54,6 +55,7 @@ def test_get_esp_port_info_success() -> None:
     assert info['chip_name'] == 'ESP32-C3'
     assert info['mac'] == '24:6f:28:01:02:03'
     assert info['chip_version'] == 'v0.4'
+    assert info['chip_rev_full'] == 4  # major*100 + minor
     assert info['chip_xtal'] == '40'
     assert info['flash_id'] == hex(0x1740EF)
     assert info['flash_size'] == '4MB'
@@ -85,6 +87,57 @@ def test_get_esp_port_info_unrecognized_chip_name() -> None:
     # fmt: on
     assert info['chip_name'] == 'ESP32-FOO'
     assert info['target'] == 'unknown'
+
+
+def test_esptool_detect_chip_uses_context_manager_on_4_8() -> None:
+    chip = mock.MagicMock()
+    chip.__enter__.return_value = chip
+    chip.__exit__.return_value = None
+
+    # fmt: off
+    with mock.patch.object(esp_serial.esptool, '__version__', '4.8.0'), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=chip) as detect:
+        with esptool_detect_chip(
+            '/dev/ttyUSB1', baudrate=460800, connect_attempts=3, connect_mode='no-reset'
+        ) as esp:
+            assert esp is chip
+    # fmt: on
+
+    detect.assert_called_once_with('/dev/ttyUSB1', baud=460800, connect_attempts=3, connect_mode='no-reset')
+    chip.__enter__.assert_called_once()
+    chip.__exit__.assert_called_once()
+
+
+def test_esptool_detect_chip_closes_port_on_4_7() -> None:
+    mock_port = mock.MagicMock()
+    mock_esp = mock.MagicMock()
+    mock_esp._port = mock_port
+
+    # fmt: off
+    with mock.patch.object(esp_serial.esptool, '__version__', '4.7.0'), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=mock_esp) as detect:
+        with esptool_detect_chip('/dev/ttyUSB1', baud=115200, connect_attempts=2) as esp:
+            assert esp is mock_esp
+    # fmt: on
+
+    detect.assert_called_once_with('/dev/ttyUSB1', baud=115200, connect_attempts=2)
+    mock_port.close.assert_called_once()
+
+
+def test_esptool_detect_chip_closes_port_when_body_raises_on_4_7() -> None:
+    mock_port = mock.MagicMock()
+    mock_esp = mock.MagicMock()
+    mock_esp._port = mock_port
+
+    # fmt: off
+    with mock.patch.object(esp_serial.esptool, '__version__', '4.7.0'), \
+        mock.patch.object(esp_serial.esptool, 'detect_chip', return_value=mock_esp):
+        with pytest.raises(RuntimeError, match='boom'):
+            with esptool_detect_chip('/dev/ttyUSB1'):
+                raise RuntimeError('boom')
+    # fmt: on
+
+    mock_port.close.assert_called_once()
 
 
 def test_detect_port_info_no_cache_success() -> None:
