@@ -45,6 +45,9 @@ DEFAULT_FAIL_TYPE = 'unknown'
 DEFAULT_STD_HEAD_LEN = 4 * 1024
 DEFAULT_STD_TAIL_LEN = 4 * 1024
 MAX_XUNIT_STD_LEN = DEFAULT_STD_HEAD_LEN + DEFAULT_STD_TAIL_LEN
+# Directory (relative to the report file) auto-generated case detail files are
+# saved under when the caller does not pass an explicit file_name.
+CASE_DETAIL_DIR_NAME = 'case_details'
 
 
 def _is_xml_char(codepoint: int) -> bool:
@@ -415,7 +418,7 @@ def parse_xunit_xml(
 _KNOWN_CONFIG_KEYS = frozenset({'suite_name', 'package', 'file', 'hostname'})
 
 
-class XunitLogger:
+class XunitLogger:  # pylint: disable=too-many-public-methods
     _default_config: t.Dict[str, str] = {}
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -468,6 +471,8 @@ class XunitLogger:
         self._stderr = self._new_buffer()
         self._case_start_time: t.Optional[float] = None
         self._last_flush_time: t.Optional[float] = None
+        self._case_detail_seq = 0
+        self._case_detail_ids: t.Set[int] = set()
         if 'file' in resolved:
             self.test_suite.file = resolved['file']
         for key, value in resolved.items():
@@ -514,6 +519,47 @@ class XunitLogger:
     def set_config(self, config: t.Dict[str, str]) -> None:
         """Set suite attrs for known keys; store unknown keys in properties."""
         self._apply_config(config)
+
+    @_synchronized
+    def set_case_properties(self, properties: t.Dict[str, str]) -> None:
+        """Merge properties into the running test case without flushing."""
+        if self.running_case is None:
+            raise RuntimeError('No running test case')
+        self.running_case.properties.update(properties)
+
+    @_synchronized
+    def add_case_detail(self, detail: ResultDetail) -> ResultDetail:
+        """Attach a :class:`ResultDetail` to the running case and save it as JSON.
+
+        The file is saved at ``detail.file`` (relative to the report file's
+        directory). When ``detail.file`` is empty, a path under
+        ``case_details/`` is generated from an instance-wide counter (e.g.
+        ``case_details/1.json``, ``case_details/2.json``, ...) so names stay
+        unique across every case in the run, and stored back onto ``detail.file``.
+        The detail is saved immediately instead of relying on a later manual
+        ``save_json()`` call.
+
+        Each ``ResultDetail`` instance may only be passed to this method once;
+        passing the same (mutable) instance again would silently overwrite the
+        JSON file already saved for it, so a second call raises ``ValueError``.
+        Construct a new ``ResultDetail`` for each call instead.
+        """
+        if self.running_case is None:
+            raise RuntimeError('No running test case')
+        if id(detail) in self._case_detail_ids:
+            raise ValueError(
+                'This ResultDetail instance was already added via add_case_detail(); '
+                'construct a new ResultDetail for each call instead of reusing one.'
+            )
+        if not detail.file:
+            self._case_detail_seq += 1
+            detail.file = f'{CASE_DETAIL_DIR_NAME}/{self._case_detail_seq}.json'
+        # Save before registering so a failed write never leaves the case/report
+        # referencing a detail file that does not actually exist on disk.
+        detail.save_json(self.xunit_file.parent / detail.file)
+        self.running_case.add_result_detail(detail)
+        self._case_detail_ids.add(id(detail))
+        return detail
 
     def get_config(self) -> t.Dict[str, str]:
         """Return the effective suite config (known attrs + properties)."""

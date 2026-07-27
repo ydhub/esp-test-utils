@@ -42,26 +42,23 @@ def xunit_logger_example(output_dir: str) -> Path:
     logger.add_skipped('target does not support WPA3')
     logger.end_case()
 
-    # A performance case: attach a ``ResultDetail`` object to the running case via
-    # ``add_result_detail`` with a relative file name (relative to the report dir),
-    # then persist it to JSON at that path so the raw numbers are embedded in the
-    # report. ``add_result_detail`` stores the relative path on the detail and in
-    # ``result_detail_files`` for us.
+    # A performance case: ``add_case_detail`` attaches a ``ResultDetail`` object
+    # to the running case and immediately saves it as JSON next to the report,
+    # recording the relative path in ``result_detail_files`` for us. Setting
+    # ``file`` on the detail controls where it is saved; leave it empty to get
+    # an auto-generated ``case_details/{n}.json`` path instead.
     logger.begin_case('test_tcp_tx_throughput', classname='iperf.tcp')
     logger.add_sys_out('running iperf tcp tx for 60s ...')
-    assert logger.running_case is not None
-    detail_rel_path = 'result_details/test_tcp_tx_throughput.json'
-    detail = logger.running_case.add_result_detail(
+    logger.add_case_detail(
         ResultDetail(
             type='throughput',
             context='iperf tcp tx',
             params={'proto': 'tcp', 'direction': 'tx', 'target': 'esp32'},
             result={'throughput_mbps': 94.2, 'unit': 'Mbits/sec'},
             brief_message='tcp tx 94.2 Mbits/sec',
-        ),
-        file_name=detail_rel_path,
+            file='result_details/test_tcp_tx_throughput.json',
+        )
     )
-    detail.save_json(Path(output_dir) / detail_rel_path)
     logger.end_case()
 
     report_path = logger.flush(force=True)

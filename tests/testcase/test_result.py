@@ -116,6 +116,37 @@ def test_test_case_result_add_result_detail_stores_relative_file_name() -> None:
     assert 'file' not in detail.to_dict()
 
 
+def test_test_case_result_add_result_detail_uses_preset_file_without_file_name() -> None:
+    # a detail constructed with `file` already set must still be registered in
+    # result_detail_files even when no file_name argument is passed, otherwise
+    # detail.file and result_detail_files would silently drift apart.
+    case = TestCaseResult(name='test_tcp_tx')
+    detail = ResultDetail(
+        type='throughput',
+        result={'throughput_mbps': 94.2},
+        file='result_details/preset.json',
+    )
+
+    case.add_result_detail(detail)
+
+    assert detail.file == 'result_details/preset.json'
+    assert case.result_detail_files == ['result_details/preset.json']
+
+
+def test_test_case_result_add_result_detail_file_name_overrides_preset_file() -> None:
+    case = TestCaseResult(name='test_tcp_tx')
+    detail = ResultDetail(
+        type='throughput',
+        result={'throughput_mbps': 94.2},
+        file='result_details/old.json',
+    )
+
+    case.add_result_detail(detail, file_name='result_details/new.json')
+
+    assert detail.file == 'result_details/new.json'
+    assert case.result_detail_files == ['result_details/new.json']
+
+
 def test_test_suites_result_aggregates_nested_case_counts() -> None:
     suites = TestSuitesResult(
         name='all-tests',

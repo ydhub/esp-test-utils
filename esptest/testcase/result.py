@@ -175,15 +175,19 @@ class TestCaseResult:
     def add_result_detail(self, detail: ResultDetail, file_name: str = '') -> ResultDetail:
         """Attach a :class:`ResultDetail` object directly to this case.
 
-        The object is kept in ``result_details`` (in memory). When ``file_name`` (a
-        path relative to the report/log directory) is given, it is stored on the
-        detail (``detail.file``) and appended to ``result_detail_files`` so the
-        report can reference the saved file. Writing the file itself is left to the
-        caller (e.g. ``detail.save_json``). Returns the same object for chaining.
+        The object is kept in ``result_details`` (in memory). ``file_name`` (a
+        path relative to the report/log directory), when given, is stored on the
+        detail (``detail.file``), overriding any value already there. Whichever
+        path ends up on ``detail.file`` (whether just set from ``file_name`` or
+        pre-populated by the caller) is appended to ``result_detail_files`` so
+        the two always stay in sync and the report can reference the saved
+        file. Writing the file itself is left to the caller (e.g.
+        ``detail.save_json``). Returns the same object for chaining.
         """
         if file_name:
             detail.file = file_name
-            self.result_detail_files.append(file_name)
+        if detail.file:
+            self.result_detail_files.append(detail.file)
         self.result_details.append(detail)
         return detail
 
