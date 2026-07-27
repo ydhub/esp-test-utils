@@ -49,30 +49,49 @@ marks it SKIPPED.
 
 ## Attaching performance details
 
-A case can carry structured performance data via `ResultDetail`. Persist it to
-JSON next to the report using a path relative to the report directory; the
-relative path is recorded on the case so it is auto-loaded when the report is
-parsed back.
+A case can carry structured performance data via `ResultDetail`.
+`add_case_detail()` attaches the detail to the running case and immediately
+saves it as JSON next to the report; the relative path is recorded on the
+case so it is auto-loaded when the report is parsed back.
 
 ```python
-from pathlib import Path
-
 from esptest.testcase.result import ResultDetail
 
 logger.begin_case('test_tcp_tx_throughput', classname='iperf.tcp')
-detail_rel = 'result_details/test_tcp_tx_throughput.json'
-detail = logger.running_case.add_result_detail(
+logger.add_case_detail(
     ResultDetail(
         type='throughput',
         context='iperf tcp tx',
         params={'proto': 'tcp', 'direction': 'tx'},
         result={'throughput_mbps': 94.2, 'unit': 'Mbits/sec'},
         brief_message='tcp tx 94.2 Mbits/sec',
-    ),
-    file_name=detail_rel,
+    )
 )
-detail.save_json(Path('./xunit_report') / detail_rel)
 logger.end_case()
+```
+
+`add_case_detail()` requires a running case (it raises `RuntimeError`
+otherwise) and returns the same `ResultDetail` for chaining. The file is saved
+at `detail.file` (relative to the report directory). When `detail.file` is
+empty, a path is auto-generated as `case_details/{n}.json` (and written back
+onto `detail.file`), where `n` comes from a counter that keeps incrementing
+across every case in the run (so generated names never collide). Set `file`
+yourself to control the path instead:
+
+Each `ResultDetail` instance may only be passed to `add_case_detail()` once;
+construct a new `ResultDetail` for every call instead of mutating and
+re-adding the same object, otherwise the second call raises `ValueError`
+(reusing the instance would otherwise silently overwrite the file already
+saved for it).
+
+```python
+logger.add_case_detail(
+    ResultDetail(
+        type='throughput',
+        result={'throughput_mbps': 94.2},
+        file='result_details/test_tcp_tx_throughput.json',
+    )
+)
 ```
 
 ## Building from dataclasses

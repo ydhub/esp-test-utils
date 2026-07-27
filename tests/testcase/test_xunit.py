@@ -316,6 +316,102 @@ def test_set_case_properties_requires_running_case(tmp_path: Path) -> None:
         logger.set_case_properties({'target': 'esp32'})
 
 
+def test_add_case_detail_auto_generates_incrementing_file_names(tmp_path: Path) -> None:
+    from esptest.testcase.result import ResultDetail
+
+    logger = XunitLogger(tmp_path)
+
+    logger.begin_case('test_tcp_tx')
+    first = logger.add_case_detail(ResultDetail(type='throughput', result={'mbps': 94.2}))
+    second = logger.add_case_detail(ResultDetail(type='throughput', result={'mbps': 95.0}))
+    assert first.file == 'case_details/1.json'
+    assert second.file == 'case_details/2.json'
+    assert (tmp_path / 'case_details/1.json').is_file()
+    assert (tmp_path / 'case_details/2.json').is_file()
+    logger.end_case()
+
+    # the counter is not reset per case, so a new case keeps incrementing
+    logger.begin_case('test_tcp_rx')
+    third = logger.add_case_detail(ResultDetail(type='throughput', result={'mbps': 90.0}))
+    assert third.file == 'case_details/3.json'
+    saved_path = logger.end_case()
+
+    cases = parse_xunit_xml(saved_path).test_suites[0].test_cases
+    assert cases[0].result_detail_files == ['case_details/1.json', 'case_details/2.json']
+    assert [detail.result['mbps'] for detail in cases[0].result_details] == [94.2, 95.0]
+    assert cases[1].result_detail_files == ['case_details/3.json']
+    assert cases[1].result_details[0].result['mbps'] == 90.0
+
+
+def test_add_case_detail_uses_explicit_file_name(tmp_path: Path) -> None:
+    from esptest.testcase.result import ResultDetail
+
+    logger = XunitLogger(tmp_path)
+
+    logger.begin_case('test_tcp_tx')
+    detail = logger.add_case_detail(
+        ResultDetail(type='throughput', result={'mbps': 94.2}, file='custom/detail.json'),
+    )
+    assert detail.file == 'custom/detail.json'
+    assert (tmp_path / 'custom/detail.json').is_file()
+    saved_path = logger.end_case()
+
+    case = parse_xunit_xml(saved_path).test_suites[0].test_cases[0]
+    assert case.result_detail_files == ['custom/detail.json']
+    assert case.result_details[0].result == {'mbps': 94.2}
+
+
+def test_add_case_detail_requires_running_case(tmp_path: Path) -> None:
+    from esptest.testcase.result import ResultDetail
+
+    logger = XunitLogger(tmp_path)
+
+    with pytest.raises(RuntimeError, match='No running test case'):
+        logger.add_case_detail(ResultDetail(type='throughput'))
+
+
+def test_add_case_detail_rejects_reused_instance(tmp_path: Path) -> None:
+    # calling add_case_detail() twice with the same mutable ResultDetail must
+    # not silently overwrite the file already saved for it, or duplicate the
+    # entry in result_details / result_detail_files.
+    from esptest.testcase.result import ResultDetail
+
+    logger = XunitLogger(tmp_path)
+
+    logger.begin_case('test_tcp_tx')
+    detail = ResultDetail(type='throughput', result={'mbps': 94.2})
+    logger.add_case_detail(detail)
+
+    with pytest.raises(ValueError, match='already added'):
+        logger.add_case_detail(detail)
+
+    assert logger.running_case is not None
+    assert logger.running_case.result_detail_files == ['case_details/1.json']
+    assert len(logger.running_case.result_details) == 1
+
+
+def test_add_case_detail_does_not_register_when_save_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # if writing the JSON file fails, the case/report must not end up
+    # referencing a detail file that was never actually written.
+    from esptest.testcase.result import ResultDetail
+
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_tcp_tx')
+    detail = ResultDetail(type='throughput', result={'mbps': 94.2})
+
+    def _boom(self: ResultDetail, path: object, indent: object = 2) -> Path:
+        raise OSError('disk full')
+
+    monkeypatch.setattr(ResultDetail, 'save_json', _boom)
+
+    with pytest.raises(OSError, match='disk full'):
+        logger.add_case_detail(detail)
+
+    assert logger.running_case is not None
+    assert logger.running_case.result_detail_files == []
+    assert logger.running_case.result_details == []
+
+
 def test_begin_case_records_started_at(tmp_path: Path) -> None:
     logger = XunitLogger(tmp_path)
 
