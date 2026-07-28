@@ -21,6 +21,12 @@ from .merged_bin import (  # pylint: disable=relative-beyond-top-level
     probe_merged_bin,
     synthetic_flasher_args,
 )
+from .raw_flash import (  # pylint: disable=relative-beyond-top-level
+    apply_raw_overrides,
+    is_raw_bin_dir,
+    load_raw_flash,
+    raw_to_flasher_args,
+)
 
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
@@ -102,6 +108,9 @@ def bin_path_to_dir_or_bin(
     if check_valid:
         root = Path(bin_path)
         if is_standard_bin_dir(root):
+            return bin_path
+        if is_raw_bin_dir(root):
+            load_raw_flash(root)
             return bin_path
         if allow_merged:
             # Ensure the directory contains exactly one valid merged bin.
@@ -251,6 +260,8 @@ class ParseBinPath:
         self,
         bin_path: t.Union[str, Path],
         parttool: str = '',
+        raw_offset: str = '',
+        raw_chip: str = '',
     ):
         self._parttool = parttool
         self._flasher_args: t.Dict[str, t.Any] = {}
@@ -259,6 +270,7 @@ class ParseBinPath:
         self._mode = 'standard'
         self._merged_bin_path = ''
         self._merged_meta: t.Optional[MergedBinMeta] = None
+        self._raw: t.Optional[t.Dict[str, t.Any]] = None
 
         resolved = bin_path_to_dir_or_bin(str(bin_path), allow_merged=True, check_valid=True)
         resolved_path = Path(resolved)
@@ -274,6 +286,14 @@ class ParseBinPath:
         self.bin_path = str(resolved_path.resolve())
         if is_standard_bin_dir(resolved_path):
             self._mode = 'standard'
+            return
+        if is_raw_bin_dir(resolved_path):
+            self._mode = 'raw'
+            self._raw = apply_raw_overrides(
+                load_raw_flash(resolved_path),
+                offset=raw_offset or None,
+                chip=raw_chip or None,
+            )
             return
 
         # Directory without standard markers: exactly one valid merged .bin
@@ -342,6 +362,8 @@ class ParseBinPath:
                     self._flasher_args = loaded
             elif self._mode == 'merged' and self._merged_meta is not None:
                 self._flasher_args = synthetic_flasher_args(self._merged_meta)
+            elif self._mode == 'raw' and self._raw is not None:
+                self._flasher_args = raw_to_flasher_args(self._raw)
             else:
                 self._flasher_args = self._parse_flash_args(flasher_args_file)
         return self._flasher_args
@@ -607,7 +629,7 @@ class ParseBinPath:
         else:
             for offset, bin_file in self.flasher_args['flash_files'].items():
                 args += [offset, str(Path(self.bin_path) / bin_file)]
-        if erase_nvs:
+        if erase_nvs and self._mode != 'raw':
             try:
                 args += list(self._gen_erase_nvs_bin())
             except ValueError:
