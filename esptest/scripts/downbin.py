@@ -34,8 +34,9 @@ def prepare_download_target(args: argparse.Namespace) -> t.Tuple[str, bool]:
                 print(f'error: not a raw bin package directory: {bin_path}', file=sys.stderr)
                 sys.exit(2)
             if args.offset or args.chip:
-                pkg = Path(tempfile.mkdtemp(prefix='raw_bin_'))
-                shutil.copytree(path, pkg, dirs_exist_ok=True)
+                parent = Path(tempfile.mkdtemp(prefix='raw_bin_'))
+                pkg = parent / 'pkg'
+                shutil.copytree(path, pkg)
                 raw = load_raw_flash(path)
                 write_raw_flash(
                     pkg,

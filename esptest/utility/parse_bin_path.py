@@ -349,23 +349,24 @@ class ParseBinPath:
     def flasher_args(self) -> t.Dict[str, t.Any]:
         """Parse flash args from flasher_args.json"""
         if not self._flasher_args:
-            flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
-            # Bare merged bins live under an arbitrary parent (e.g. /tmp); missing
-            # flasher_args.json is expected — use synthetic args without warning.
-            if flasher_args_file.is_file():
-                loaded = self._parse_flash_args(flasher_args_file)
-                if loaded:
-                    self._flasher_args = loaded
+            if self._mode == 'raw' and self._raw is not None:
+                self._flasher_args = raw_to_flasher_args(self._raw)
+            else:
+                flasher_args_file = Path(self.bin_path) / self.FLASHER_ARGS_FILE
+                # Bare merged bins live under an arbitrary parent (e.g. /tmp); missing
+                # flasher_args.json is expected — use synthetic args without warning.
+                if flasher_args_file.is_file():
+                    loaded = self._parse_flash_args(flasher_args_file)
+                    if loaded:
+                        self._flasher_args = loaded
+                    elif self._mode == 'merged' and self._merged_meta is not None:
+                        self._flasher_args = synthetic_flasher_args(self._merged_meta)
+                    else:
+                        self._flasher_args = loaded
                 elif self._mode == 'merged' and self._merged_meta is not None:
                     self._flasher_args = synthetic_flasher_args(self._merged_meta)
                 else:
-                    self._flasher_args = loaded
-            elif self._mode == 'merged' and self._merged_meta is not None:
-                self._flasher_args = synthetic_flasher_args(self._merged_meta)
-            elif self._mode == 'raw' and self._raw is not None:
-                self._flasher_args = raw_to_flasher_args(self._raw)
-            else:
-                self._flasher_args = self._parse_flash_args(flasher_args_file)
+                    self._flasher_args = self._parse_flash_args(flasher_args_file)
         return self._flasher_args
 
     @property
