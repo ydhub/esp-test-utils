@@ -61,6 +61,46 @@ git clone <project_clone_url>
   pytest
   ```
 
+## Releasing
+
+Maintainers release with `commitizen`. Creating a **GitHub Release** triggers the PyPI publish workflow (`.github/workflows/pypi-publish.yml`).
+
+1. **Bump version** (creates a bump commit, updates `CHANGELOG.md`, and creates a local annotated tag such as `v0.6.0`):
+
+   ```sh
+   git checkout -b bump/new_version
+   cz bump --get-next   # preview next version from conventional commits
+   cz bump              # apply that bump when the preview looks correct
+   ```
+
+   If the next version is not what you expect, force the increment instead:
+
+   ```sh
+   cz bump --increment=MINOR   # or MAJOR / PATCH
+   ```
+2. **Open and merge the bump MR** on GitLab, then ensure `main` is up to date locally.
+
+3. **Push the tag** (created by `cz bump`; push after the bump commit is on `main`):
+
+   ```sh
+   git push origin vX.Y.Z
+   ```
+
+   If GitHub is a separate remote (mirror of this GitLab repo), also push the tag there so the release can reference it:
+
+   ```sh
+   git push github vX.Y.Z
+   ```
+
+4. **Create the GitHub Release** from that tag (this starts the PyPI publish job):
+
+   ```sh
+   gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes --repo ydhub/esp-test-utils
+   ```
+
+   Or use the GitHub UI: **Releases → Draft a new release → choose tag `vX.Y.Z` → Publish release**.
+   Prefer pasting the matching section from `CHANGELOG.md` into the release notes when you want curated notes.
+
 ---
 
 👏**Thank you for your contributions.**
