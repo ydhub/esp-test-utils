@@ -130,6 +130,34 @@ def test_simple_check_requirements_vendored_invalid_version(
             assert 'pytest' in caplog.text
 
 
+def test_simple_check_requirements_accepts_dev_version(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A locally installed dev build satisfies a plain lower-bound requirement."""
+    reqs_file = tmp_path / 'requirements.txt'
+    reqs_file.write_text('esp-test-utils>=0.5.0')
+
+    with mock.patch(patch_target, new_callable=new_callable) as mock_version:
+        mock_version.return_value = '0.5.3.dev18+gf5b588bc8.d20260728'
+        assert pip_check.simple_check_requirements(reqs_file) is True
+        assert 'does not meet the requirement' not in caplog.text
+
+
+def test_simple_check_requirements_dev_version_below_lower_bound(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Dev builds are still rejected when they sort below the required version."""
+    reqs_file = tmp_path / 'requirements.txt'
+    reqs_file.write_text('esp-test-utils>=0.6.0')
+
+    with mock.patch(patch_target, new_callable=new_callable) as mock_version:
+        mock_version.return_value = '0.6.0.dev1+gf5b588bc8'
+        assert pip_check.simple_check_requirements(reqs_file) is False
+        assert 'esp-test-utils>=0.6.0' in caplog.text
+
+
 def test_simple_check_requirements_file_not_found() -> None:
     """Test handling of non-existent requirements file"""
     with pytest.raises(FileNotFoundError):

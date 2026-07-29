@@ -26,6 +26,9 @@ def simple_check_requirements(
 
     Note:
         This function does not check package requirements specified by url.
+
+        Pre-release and dev versions of installed packages are accepted, so an
+        editable/dev install like '0.5.3.dev18+g1234567' satisfies '>=0.5.0'.
     """
     if sys.version_info >= (3, 8):
         from importlib.metadata import PackageNotFoundError, version
@@ -72,7 +75,9 @@ def simple_check_requirements(
                 req = Requirement(requirement)
                 try:
                     installed_version = Version(version(req.name))
-                    if installed_version not in req.specifier:
+                    # Specifier sets exclude pre-releases by default, which would reject
+                    # locally installed dev builds such as '0.5.3.dev18+g1234567'.
+                    if not req.specifier.contains(installed_version, prereleases=True):
                         pkg_results.append(
                             f"Package '{req.name}' version '{installed_version}' "
                             f'does not meet the requirement: {requirement}'

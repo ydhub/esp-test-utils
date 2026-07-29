@@ -5,10 +5,10 @@ layouts. Detection order for a directory is:
 
 1. **standard** — IDF flash package (`bootloader/` + `partition_table/`)
 2. **raw** — directory with `raw_flash.json`
-3. **merged** — exactly one valid esptool `merge-bin` image (``.bin``)
+3. **merged** — exactly one valid esptool `merge-bin` image (`.bin`)
 
-A bare ``.bin`` file is treated as **merged** when the API/CLI allows it
-(`ParseBinPath`, or `esp-downbin --merged`). A bare ``.bin`` used with
+A bare `.bin` file is treated as **merged** when the API/CLI allows it
+(`ParseBinPath`, or `esp-downbin --merged`). A bare `.bin` used with
 `--raw` is wrapped into a temporary raw package (see below).
 
 Standard packages never silently fall back to merged or raw.
