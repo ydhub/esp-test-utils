@@ -37,6 +37,29 @@ def test_two():
 """
 
 
+def test_all_options_can_already_be_registered(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        pre_registered="""
+        def pytest_addoption(parser):
+            group = parser.getgroup('pre-registered')
+            group.addoption('--env')
+            group.addoption('--export-case-names')
+            group.addoption('--export-cases')
+            group.addoption('--run-case-file')
+            group.addoption('--target')
+            group.addoption('--opts', action='append')
+        """
+    )
+    pytester.makeconftest("pytest_plugins = ['pre_registered', 'esptest.pytest_plugin']\n")
+    pytester.makepyfile('def test_one(): pass')
+
+    # passing values makes the inner run build the real argparse parser, where a
+    # duplicate registration would surface as an internal error.
+    result = pytester.runpytest('--collect-only', '--env', 'generic', '--opts', 'sdk=v5.5')
+
+    assert result.ret == pytest.ExitCode.OK
+
+
 def test_target_filtering_selects_matching_cases(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(_PLUGIN_CONFTEST)
     pytester.makepyfile(_SAMPLE_TESTS)

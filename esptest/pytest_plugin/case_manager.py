@@ -3,11 +3,13 @@
 Provides CLI options to filter and export collected cases:
 
 - ``--env NAME``                 only run cases marked ``@pytest.mark.env(NAME)``
-- ``--target TARGET``            only run cases marked for TARGET (defined here only
-                                 when no other plugin already provides ``--target``)
+- ``--target TARGET``            only run cases marked for TARGET
 - ``--export-case-names FILE``   dump ``<target>.<config>.<case>`` names, then exit
 - ``--export-cases FILE``        dump cases with metadata (json/yaml), then exit
 - ``--run-case-file FILE``       only run cases whose name is listed in FILE
+- ``--opts KEY=VALUE``           pass repeatable key-value options to cases
+
+Options already registered by another plugin are reused instead of re-defined.
 
 Repository-specific export fields are added via the
 :func:`~esptest.pytest_plugin.hookspecs.pytest_esptest_export_case` hook.
@@ -29,6 +31,7 @@ from .helpers import (
     item_exec_time,
     item_file,
     item_targets,
+    parse_opts,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,31 +45,69 @@ def pytest_addhooks(pluginmanager: pytest.PytestPluginManager) -> None:
     pluginmanager.add_hookspecs(hookspecs)
 
 
+def _known_option_names(parser: t.Any) -> t.Set[str]:
+    """All option strings already registered on ``parser``, across every group.
+
+    ``OptionGroup.addoption`` only rejects duplicates inside its own group, so a
+    name another plugin registered elsewhere is accepted here and only fails much
+    later, when argparse builds the real parser.
+    """
+    known: t.Set[str] = set()
+    groups = [getattr(parser, '_anonymous', None)] + list(getattr(parser, '_groups', []))
+    for group in groups:
+        for option in getattr(group, 'options', None) or []:
+            known.update(option.names())
+    return known
+
+
+def _addoption(parser: t.Any, group: t.Any, *names: str, **kwargs: t.Any) -> None:
+    if _known_option_names(parser).intersection(names):
+        logger.debug('%s already registered by another plugin; reusing it.', names[0])
+        return
+    try:
+        group.addoption(*names, **kwargs)
+    except (ValueError, argparse.ArgumentError):
+        logger.debug('%s already registered by another plugin; reusing it.', names[0])
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup('esptest')
-    group.addoption('--env', help='only run tests matching the environment NAME.')
-    group.addoption(
+    _addoption(parser, group, '--env', help='only run tests matching the environment NAME.')
+    _addoption(
+        parser,
+        group,
         '--export-case-names',
         help='collect all case names (the JUnit "name" attribute, '
         '<target>.<config>.<case_name>) into the given file, then exit without running.',
     )
-    group.addoption(
+    _addoption(
+        parser,
+        group,
         '--export-cases',
         help='collect all cases with metadata into the given file, then exit without running. '
         'The format is chosen by extension: ".yaml"/".yml" for YAML, otherwise JSON.',
     )
-    group.addoption(
+    _addoption(
+        parser,
+        group,
         '--run-case-file',
         help='only run cases whose name (<target>.<config>.<case_name>) is listed in the given '
         'file. Blank lines and lines starting with "#" are ignored; only cases matching the '
         'current --target are selected.',
     )
-    # ``--target`` may already be provided by another plugin (e.g. pytest-embedded);
-    # only define it here when it is missing so both setups work.
-    try:
-        group.addoption('--target', help='run tests for the given chip target.')
-    except (ValueError, argparse.ArgumentError):
-        logger.debug('--target already registered by another plugin; reusing it.')
+    _addoption(parser, group, '--target', help='run tests for the given chip target.')
+    _addoption(
+        parser,
+        group,
+        '--opts',
+        action='append',
+        help='pass KEY=VALUE to cases; may be specified multiple times.',
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Reject malformed ``--opts`` values before fixture setup."""
+    parse_opts(config.getoption('opts', []))
 
 
 def register_case_manager(config: pytest.Config) -> None:

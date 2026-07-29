@@ -8,6 +8,8 @@ repositories can reuse the exact same logic in their own conftest.
 
 import os
 
+import pytest
+
 import esptest.common.compat_typing as t
 
 #: default per-case timeout (seconds) applied to items without a ``timeout`` marker
@@ -78,3 +80,23 @@ def resolve_target(config: t.Any, item: t.Optional[t.Any] = None) -> str:
         if targets:
             return '|'.join(targets)
     return 'unknown'
+
+
+def parse_opts(raw_opts: t.Any) -> t.Dict[str, str]:
+    """Parse ``--opts KEY=VALUE`` entries into a dictionary.
+
+    Raises:
+        pytest.UsageError: when an entry is missing ``=`` or has an empty key.
+    """
+    if not raw_opts:
+        return {}
+    if isinstance(raw_opts, str):
+        raw_opts = [raw_opts]
+
+    parsed: t.Dict[str, str] = {}
+    for raw_opt in raw_opts:
+        key, separator, value = raw_opt.partition('=')
+        if not separator or not key:
+            raise pytest.UsageError(f'invalid --opts value {raw_opt!r}; expected KEY=VALUE')
+        parsed[key] = value
+    return parsed
