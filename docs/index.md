@@ -30,6 +30,7 @@ quickstart
 guides/dut
 guides/data_monitor
 guides/xunit_report
+guides/firmware_packages
 guides/cli_tools
 ```
 
