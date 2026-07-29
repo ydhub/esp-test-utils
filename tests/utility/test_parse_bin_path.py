@@ -23,6 +23,7 @@ from esptest.utility.parse_bin_path import (
     bin_path_to_dir_or_bin,
     get_baud_from_bin_path,
 )
+from esptest.utility.raw_flash import write_raw_flash
 
 TEST_FILE_PATH = Path(__file__).parent / '_files'
 
@@ -667,6 +668,55 @@ def test_get_supported_chip_rev_range_both_fail(test_bin_path: Path) -> None:
     ):
         with pytest.raises(ValueError, match='failed to get supported chip rev range'):
             parsed.get_supported_chip_rev_range()
+
+
+def _make_raw_pkg(tmp_path: Path, name: str = 'fw.bin') -> Path:
+    pkg = tmp_path / 'raw_pkg'
+    pkg.mkdir()
+    (pkg / name).write_bytes(b'\xe9' + b'\x00' * 31)
+    write_raw_flash(pkg, offset='0x1000', chip='esp32', file=name)
+    return pkg
+
+
+def test_parse_bin_path_raw_dir_sets_mode(tmp_path: Path) -> None:
+    pkg = _make_raw_pkg(tmp_path)
+    parsed = ParseBinPath(pkg)
+    assert parsed._mode == 'raw'
+    assert parsed.chip == 'esp32'
+
+
+def test_parse_bin_path_standard_beats_raw_marker(test_bin_path: Path, tmp_path: Path) -> None:
+    # If a standard layout somehow also had raw_flash.json, standard wins.
+    # Copy minimal: rely on real test_bin_path which is standard; drop a marker into a copy.
+    dest = tmp_path / 'std'
+    shutil.copytree(str(test_bin_path), str(dest))
+    write_raw_flash(dest, offset='0x1000', chip='esp32', file='dummy.bin')
+    (dest / 'dummy.bin').write_bytes(b'\xe9' + b'\x00' * 15)
+    parsed = ParseBinPath(dest)
+    assert parsed._mode == 'standard'
+
+
+def test_raw_flash_bin_args(tmp_path: Path) -> None:
+    pkg = _make_raw_pkg(tmp_path)
+    parsed = ParseBinPath(pkg)
+    args = parsed.flash_bin_args(erase_nvs=True)
+    assert 'write_flash' in args
+    assert '--chip' in args
+    chip_idx = args.index('--chip')
+    assert args[chip_idx + 1] == 'esp32'
+    assert '0x1000' in args
+    idx = args.index('0x1000')
+    assert Path(args[idx + 1]).resolve() == (pkg / 'fw.bin').resolve()
+    # erase_nvs must not inject an nvs offset when there is no partition table
+    assert args.count('0x1000') == 1
+
+
+def test_raw_overrides_via_ctor(tmp_path: Path) -> None:
+    pkg = _make_raw_pkg(tmp_path)
+    parsed = ParseBinPath(pkg, raw_offset='0x2000', raw_chip='esp32s3')
+    assert parsed.chip == 'esp32s3'
+    args = parsed.flash_bin_args(erase_nvs=False)
+    assert '0x2000' in args
 
 
 def test_dump_nvs_args(test_bin_path: Path, tmp_path: Path) -> None:
