@@ -29,9 +29,9 @@ Five pieces make the unified report work:
    pytest_plugins = ['esptest.pytest_plugin']
    ```
 
-   This adds the `--target` / `--env` / export / `--run-case-file` options, the
-   `pytest_esptest_export_case` hook, and generic fixtures (`session_tempdir`,
-   `test_case_name`, `bind_case_context`, ...).
+   This adds the `--target` / `--env` / export / `--run-case-file` / `--opts`
+   options, the `pytest_esptest_export_case` hook, and generic fixtures
+   (`session_tempdir`, `test_case_name`, `bind_case_context`, `opts`, ...).
 
 2. **Opt in to case filtering/export** and **open/close one shared
    `XunitLogger`** for the whole session. The plugin does *not* register the case
@@ -42,7 +42,7 @@ Five pieces make the unified report work:
    from esptest.pytest_plugin import register_case_manager, unregister_case_manager
 
    def pytest_configure(config):
-       register_case_manager(config)   # enable --target/--env/export/--run-case-file
+       register_case_manager(config)   # enable --target/--env/export/--run-case-file/--opts
        init_session_logger()           # creates XunitLogger(OUTPUT_DIR, ...)
 
    def pytest_unconfigure(config):
@@ -189,7 +189,41 @@ pytest example/pytest_xunit --export-case-names all_cases.txt -o addopts=
 pytest example/pytest_xunit --target esp32 --run-case-file all_cases.txt -o addopts=
 ```
 
-## 5. Convert the xUnit XML to a YAML manifest
+## 5. Pass custom options into cases
+
+Repeat `--opts KEY=VALUE` to pass repository-specific values without defining
+another pytest option:
+
+```bash
+pytest example/pytest_xunit \
+  --opts sdk=v5.5 \
+  --opts mode=release \
+  -o addopts=
+```
+
+Request the `opts` fixture in a function case:
+
+```python
+def test_with_options(opts):
+    assert opts['sdk'] == 'v5.5'
+    assert opts['mode'] == 'release'
+```
+
+Or read the same values on an `EspTestCase` via `self.opts` (injected by
+`bind_case_context`):
+
+```python
+class TestWithOptions(EspTestCase):
+    def test_with_options(self):
+        assert self.opts['sdk'] == 'v5.5'
+        assert self.opts['mode'] == 'release'
+```
+
+Values remain strings. If a key is repeated, its last value wins. Each argument
+must use `KEY=VALUE`; the value may itself contain `=`. When `--opts` is omitted,
+both the fixture and `self.opts` are `{}`.
+
+## 6. Convert the xUnit XML to a YAML manifest
 
 `xml_to_yaml.py` reads a generated report back with
 `esptest.testcase.xunit.parse_xunit_xml` and emits a YAML manifest (one entry per
@@ -236,3 +270,4 @@ results:
 | `--export-case-names FILE` | Write `<target>.<config>.<case>` names to `FILE`, then exit. |
 | `--export-cases FILE` | Write cases with metadata (JSON/YAML by extension), then exit. |
 | `--run-case-file FILE` | Only run cases whose name is listed in `FILE`. |
+| `--opts KEY=VALUE` | Pass a custom option into tests via the `opts` fixture (repeatable). |

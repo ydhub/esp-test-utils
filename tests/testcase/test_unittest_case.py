@@ -124,3 +124,24 @@ def test_get_case_result_from_outcome_reports_pass(tmp_path: Path) -> None:
 
     _run_case(MyCase)
     assert captured['result'] == (True, '')
+
+
+def test_opts_defaults_to_empty_and_is_not_shared(tmp_path: Path) -> None:
+    class CaseA(EspTestCase):
+        xunit_log_dir = str(tmp_path / 'a')
+
+        def test_pass(self) -> None:
+            self.opts['sdk'] = 'a'
+
+    class CaseB(EspTestCase):
+        xunit_log_dir = str(tmp_path / 'b')
+
+        def test_pass(self) -> None:
+            pass
+
+    _run_case(CaseA)
+    _run_case(CaseB)
+
+    assert CaseA.opts == {'sdk': 'a'}
+    assert CaseB.opts == {}
+    assert EspTestCase.opts == {}

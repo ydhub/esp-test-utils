@@ -7,12 +7,13 @@ entry point, so nothing changes until you opt in from your ``conftest.py``::
 
 It then provides:
 
-- generic fixtures (``session_tempdir``, ``log_performance``, ``config``,
-  ``test_case_name``, ``junit_properties``, ``bind_case_context``), and
+- generic fixtures (``opts``, ``session_tempdir``, ``log_performance``,
+  ``config``, ``test_case_name``, ``junit_properties``,
+  ``bind_case_context``), and
 - case-management options (``--env`` / ``--target`` filtering,
-  ``--export-case-names`` / ``--export-cases`` / ``--run-case-file``) and the
-  ``pytest_esptest_export_case`` hook. The case manager is **not** registered
-  automatically -- call :func:`register_case_manager` /
+  ``--export-case-names`` / ``--export-cases`` / ``--run-case-file`` /
+  ``--opts``) and the ``pytest_esptest_export_case`` hook. The case manager is
+  **not** registered automatically -- call :func:`register_case_manager` /
   :func:`unregister_case_manager` from your own ``pytest_configure`` /
   ``pytest_unconfigure`` (see ``example/pytest_xunit/conftest.py``), and
 - reusable marker/option readers (``item_targets``, ``item_config``,
@@ -25,6 +26,7 @@ from .case_manager import (
     EsptestCaseManager,
     pytest_addhooks,
     pytest_addoption,
+    pytest_configure,
     register_case_manager,
     unregister_case_manager,
 )
@@ -33,6 +35,7 @@ from .fixtures import (
     config,
     junit_properties,
     log_performance,
+    opts,
     session_tempdir,
     test_case_name,
 )
@@ -60,8 +63,10 @@ __all__ = [
     'item_targets',
     'junit_properties',
     'log_performance',
+    'opts',
     'pytest_addhooks',
     'pytest_addoption',
+    'pytest_configure',
     'register_case_manager',
     'resolve_target',
     'session_tempdir',

@@ -15,9 +15,15 @@ import pytest
 
 import esptest.common.compat_typing as t
 
-from .helpers import item_config, resolve_target
+from .helpers import item_config, parse_opts, resolve_target
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture
+def opts(request: pytest.FixtureRequest) -> t.Dict[str, str]:
+    """Command-line ``--opts KEY=VALUE`` entries as a dictionary."""
+    return parse_opts(request.config.getoption('opts', []))
 
 
 @pytest.fixture(scope='session')
@@ -69,15 +75,16 @@ def junit_properties(
 def bind_case_context(  # pylint: disable=redefined-outer-name
     request: pytest.FixtureRequest, session_tempdir: str
 ) -> None:
-    """Inject ``target`` / ``config`` / ``xunit_log_dir`` onto the ``TestCase`` class.
+    """Inject ``target`` / ``config`` / ``opts`` / ``xunit_log_dir`` onto the class.
 
     Class-scoped fixtures cannot depend on the function-scoped ``config`` /
-    ``target`` fixtures, so read them from the CLI option and markers instead.
-    This pairs with :class:`esptest.testcase.EspTestCase`.
+    ``target`` / ``opts`` fixtures, so read them from the CLI option and markers
+    instead. This pairs with :class:`esptest.testcase.EspTestCase`.
     """
     if request.cls is None:
         return
     request.cls.target = resolve_target(request.config, request.node)
     config_markers = list(request.node.iter_markers(name='config'))
     request.cls.config = config_markers[0].args[0] if config_markers else 'Default'
+    request.cls.opts = parse_opts(request.config.getoption('opts', []))
     request.cls.xunit_log_dir = session_tempdir

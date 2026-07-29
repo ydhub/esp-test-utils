@@ -64,13 +64,13 @@ class EspTestCase(unittest.TestCase):
     """A :class:`unittest.TestCase` that streams results into an xUnit report.
 
     Subclasses only need to set :attr:`xunit_log_dir` (and optionally
-    :attr:`target` / :attr:`config` / :attr:`xunit_suite_name`) and write plain
+    :attr:`target` / :attr:`config` / :attr:`opts` / :attr:`xunit_suite_name`) and write plain
     ``test_*`` methods. Each case is opened in :meth:`setUp` and closed in
     :meth:`tearDown` with the result derived from the runner outcome.
 
     Under pytest, the ``bind_case_context`` fixture from
     ``esptest.pytest_plugin`` can inject ``target`` / ``config`` /
-    ``xunit_log_dir`` onto the class automatically.
+    ``opts`` / ``xunit_log_dir`` onto the class automatically.
 
     To fold several classes (or a whole pytest session) into a *single* report,
     assign a shared :class:`~esptest.testcase.xunit.XunitLogger` to
@@ -82,6 +82,8 @@ class EspTestCase(unittest.TestCase):
     target: str = 'unknown'
     #: build/config label, used in the default :meth:`case_id`
     config: str = 'Default'
+    #: command-line ``--opts KEY=VALUE`` entries (injected under pytest)
+    opts: t.Dict[str, str] = {}
     #: directory the xUnit report (and per-case artifacts) are written under
     xunit_log_dir: str = ''
     #: xUnit suite name; defaults to the class name when empty
@@ -98,6 +100,9 @@ class EspTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
+        # Give each subclass its own mapping so in-place updates cannot mutate the
+        # shared class-level default (or another subclass's injected opts).
+        cls.opts = dict(cls.opts)
         if cls.xunit_logger is None:
             suite_name = cls.xunit_suite_name or cls.__name__
             report_dir = os.path.join(cls.xunit_log_dir or '.', cls.__name__)

@@ -39,6 +39,8 @@ class TestExampleSuite(EspTestCase):
 
     def test_pass(self) -> None:
         time.sleep(0.2)  # so the report shows a non-zero, real exec time
+        # ``opts`` is injected by bind_case_context from ``--opts KEY=VALUE``.
+        assert isinstance(self.opts, dict)
         self.assertEqual(2 + 3, 5)
 
     def test_expected_fail(self) -> None:
