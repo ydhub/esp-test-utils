@@ -1,3 +1,21 @@
+## v0.6.0 (2026-07-29)
+
+
+- fix(pip_check): accept local dev builds against lower bounds (0ddec5d)
+- fix(downbin): drop dirs_exist_ok for Python 3.7 (0900cf5)
+- feat(downbin): add --raw/--offset/--chip for special firmware (0d10890)
+- feat(parse_bin_path): support raw_flash.json packages (6fc68c1)
+- feat(utility): add raw_flash package helpers (69307dd)
+- feat(pytest): support case options passthrough (079f522)
+- feat(testcase): add XunitLogger.add_case_detail helper (d987f7c)
+- feat(testcase): support setting xunit case properties (f8bbf62)
+- feat(dut): add get_chip_info and dual-UART download/log handling (4798802)
+- feat(testcase): add XunitLogger default config and suite properties (9653106)
+- refactor: cache efuse summary lookups in download_bin (1817f87)
+- fix: make download_partition baud retry work correctly (c4dd079)
+- feat(utility): support raw merged bin in ParseBinPath/esp-downbin (ef1a8aa)
+- feat(common): support shell defaults in expand_env_vars (33ddeac)
+
 ## v0.5.2 (2026-07-20)
 
 
