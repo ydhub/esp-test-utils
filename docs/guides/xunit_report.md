@@ -47,6 +47,43 @@ later periodic or explicit flush, or when `end_case()` finishes the case.
 `end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
 marks it SKIPPED.
 
+## Suite config and process-wide defaults
+
+`set_config()` updates the current suite. Known keys are `suite_name`,
+`package`, `file`, and `hostname`. Any other key is stored as a suite
+property (emitted on the `<testsuite>` / properties section of the report):
+
+```python
+logger.set_config({
+    'package': 'esp-test-utils',
+    'file': 'test_wifi.py',
+    'target': 'esp32',       # suite property
+    'ci_job': 'nightly',     # suite property
+})
+print(logger.get_config())   # known attrs + properties
+```
+
+Process-wide defaults apply to every new `XunitLogger` instance.
+`set_default_config()` **merges** into the existing defaults (omitted keys
+are kept); call `clear_default_config()` first if you need a clean slate.
+Explicit constructor arguments win over defaults; `set_config()` on an
+instance only affects that instance:
+
+```python
+XunitLogger.set_default_config({
+    'package': 'lab-framework',
+    'hostname': 'rack-a',
+    'target': 'esp32c5',     # becomes a suite property on each new logger
+})
+
+logger = XunitLogger('./xunit_report', suite_name='wifi-suite')
+# package/hostname/target come from defaults; suite_name from the constructor
+assert logger.get_config()['package'] == 'lab-framework'
+
+XunitLogger.clear_default_config()   # reset for later tests / other runners
+# XunitLogger.get_default_config() returns a copy of the current defaults
+```
+
 ## Attaching performance details
 
 A case can carry structured performance data via `ResultDetail`.

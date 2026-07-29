@@ -74,7 +74,7 @@ used fields:
 | `device`          | Log UART serial device, e.g. `/dev/ttyUSB0`, `COM3`                  |
 | `baudrate`        | Console baudrate (0 = derive from bin path or default 115200)        |
 | `serial_configs`  | Extra pyserial kwargs, e.g. `{'timeout': 0.1}`                       |
-| `bin_path`        | Firmware path; used to derive chip/stub/baudrate                     |
+| `bin_path`        | Firmware path (standard / raw / merged); see {doc}`firmware_packages` |
 | `download_device` | Flash/download UART (defaults to `device` if unset)                  |
 | `support_esptool` | Enable esptool-backed `hard_reset` / `download_bin` / `get_chip_info`|
 | `log_file`        | Log file path (auto-generated under `log_path` if empty)             |
@@ -153,8 +153,7 @@ Invariant: `dut.esp` is only set when the log port is the same serial device
 as `download_device` (or download is unset). Separate ports still allow
 esptool operations through `download_device`.
 
-A runnable sample is `jap_test_dual_uart_download_bin` in
-`example/jap_test.py`.
+A runnable sample is `espat_dut_reset` in `example/espat_dut.py`.
 
 ## Custom DUT classes
 

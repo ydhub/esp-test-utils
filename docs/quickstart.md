@@ -66,4 +66,6 @@ Key points:
   customization.
 - {doc}`guides/data_monitor` — react to device output as it streams in.
 - {doc}`guides/xunit_report` — record results as xUnit XML.
+- {doc}`guides/firmware_packages` — standard / raw / merged firmware layouts
+  for `ParseBinPath`, DUT `bin_path`, and `esp-downbin`.
 - {doc}`guides/cli_tools` — the bundled `esp-*` command line tools.
