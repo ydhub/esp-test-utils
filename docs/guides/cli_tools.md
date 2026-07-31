@@ -21,8 +21,10 @@ lab automation. Run any of them with `-h`/`--help` for the full option list.
 ## `esp-listports`
 
 ```bash
-esp-listports                 # human-readable list
+esp-listports                 # human-readable list (with esptool chip detect)
 esp-listports --format json   # machine-readable
+esp-listports --serial        # list serial ports only (no esptool detect)
+esp-listports --serial --format json
 esp-listports --monitor       # run the uart port monitor
 ```
 

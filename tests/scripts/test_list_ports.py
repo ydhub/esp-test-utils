@@ -16,8 +16,10 @@ def _sample_ports() -> list:
             True,
             chip_name='ESP32-C3',
             chip_description='ESP32-C3 (revision v0.4)',
+            serial_description='CP2102 USB to UART',
             mac='24:6f:28:01:02:03',
             chip_version='v0.4',
+            chip_xtal='40',
             target='esp32c3',
         ),
         EspPortInfo('/dev/ttyUSB1', 'loc-b', False, serial_description='CP2102 USB to UART'),
@@ -61,8 +63,28 @@ def test_main_text_format(capsys: pytest.CaptureFixture) -> None:
     assert 'All devices:' in out
     assert '/dev/ttyUSB0' in out
     assert 'esp32c3' in out
+    # detect success: short description is serial only (chip fields have own columns)
+    esp_line = [line for line in out.splitlines() if '/dev/ttyUSB0' in line][0]
+    assert 'ESP32-C3 (revision v0.4)' in esp_line
+    assert 'CP2102 USB to UART' not in esp_line
     # esptool-unsupported ports show a fallback marker
     assert 'not esp port' in out
+
+
+def test_main_text_format_shows_xtal(capsys: pytest.CaptureFixture) -> None:
+    # keep Python 3.7-compatible multi-context with-statement
+    # fmt: off
+    with mock.patch.object(list_ports, 'list_all_esp_ports', return_value=_sample_ports()), \
+        mock.patch.object(list_ports.sys, 'argv', ['list_ports']):
+        list_ports.main()
+    # fmt: on
+
+    out = capsys.readouterr().out
+    esp_line = [line for line in out.splitlines() if '/dev/ttyUSB0' in line][0]
+    # display layer suffixes MHz; raw chip_xtal stays numeric
+    assert '40MHz' in esp_line
+    assert esp_line.index('40MHz') > esp_line.index('v0.4')
+    assert esp_line.index('40MHz') < esp_line.index('24:6f:28:01:02:03')
 
 
 def test_main_monitor_dispatches(capsys: pytest.CaptureFixture) -> None:

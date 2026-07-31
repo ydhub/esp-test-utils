@@ -94,7 +94,8 @@ def test_shell_port_logfile(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
 def test_pexpect_spawn_port_read_write() -> None:
-    shell_cmd = '/bin/bash'
+    # Skip user bashrc/profile — interactive bash startup can exceed a 1s poll window.
+    shell_cmd = '/bin/bash --noprofile --norc'
     with PexpectPort(cmd=shell_cmd) as port:
         port.write_line('echo hello')
         # Poll for output to reduce timing flakiness under full-suite load.
@@ -115,7 +116,7 @@ def test_pexpect_spawn_port_read_write() -> None:
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='wexpect has issues with PowerShell/cmd.exe on Windows')
 def test_pexpect_spawn_port_maxread() -> None:
-    shell_cmd = '/bin/bash'
+    shell_cmd = '/bin/bash --noprofile --norc'
     # default maxread comes from global_config
     with PexpectPort(cmd=shell_cmd) as port:
         assert port.spawn is not None
