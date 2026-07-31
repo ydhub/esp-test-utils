@@ -37,7 +37,38 @@ esp-downbin ./build -p ttyUSB0
 ```
 
 Zip archives and `http(s)` URLs that unpack to this layout work the same way
-via `bin_path_to_dir` / `ParseBinPath`.
+via `bin_path_to_dir` / `ParseBinPath`. HTTP autoindex directory URLs (Apache /
+nginx style listings) are fetched by `download_dir` into a temporary directory,
+then handled like a local package. ``.bin`` / ``.zip`` URLs use `download_file`.
+Both share the same single-file fetch helper. Folder downloads show a
+single-line ``N/total`` file counter. Optional ``whitelist`` globs on
+`download_dir` can limit which relative paths are fetched;
+`bin_path_to_dir_or_bin` downloads the full tree.
+
+```bash
+# HTTP autoindex directory (trailing slash optional; server may 301 to /)
+esp-downbin http://files.example/NFS/test_bin/.../SSC_OTA_FLASH -p /dev/ttyUSB0
+esp-downbin https://example.com/artifacts/my_app.zip -p ttyUSB0
+```
+
+```python
+from esptest.tools.http_download import download_dir, download_file
+from esptest.utility.parse_bin_path import ParseBinPath, bin_path_to_dir
+
+# Resolve remote autoindex → local package directory, then flash via ParseBinPath
+local_dir = bin_path_to_dir('http://files.example/NFS/test_bin/.../SSC_OTA_FLASH')
+parsed = ParseBinPath(local_dir)
+
+# Or download only selected relative paths (download_dir only; not used by bin_path_*)
+download_dir(
+    'http://files.example/NFS/test_bin/.../SSC_OTA_FLASH/',
+    './ssc_ota_flash',
+    whitelist=['*.bin', '**/*.bin', '*.json', 'sdkconfig', 'bootloader/*', 'partition_table/*'],
+)
+
+# Single remote file
+download_file('https://example.com/artifacts/merged.bin', './merged.bin')
+```
 
 `bin_path_to_dir_or_bin` flags:
 

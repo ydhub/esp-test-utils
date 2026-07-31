@@ -38,6 +38,8 @@ esp-downbin ./build --all                  # every detected serial port
 esp-downbin ./build --range 0-10           # ttyUSB0 .. ttyUSB10 (Linux)
 esp-downbin ./build -b 921600 --no-erase-nvs
 esp-downbin ./merged.bin --merged -p ttyUSB0   # esptool merge-bin image
+# HTTP autoindex directory (standard IDF package listing)
+esp-downbin http://files.example/artifacts/SSC_OTA_FLASH -p /dev/ttyUSB0
 # raw offset-based package, .zip, or bare .bin
 esp-downbin ./my_raw_pkg --raw -p ttyUSB0
 esp-downbin ./my_raw_pkg.zip --raw -p ttyUSB0

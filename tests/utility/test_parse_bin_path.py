@@ -442,6 +442,32 @@ def test_bin_path_to_dir_or_bin_http_raw_bin(tmp_path: Path) -> None:
     assert Path(resolved).name == 'rf.bin'
 
 
+def test_bin_path_to_dir_or_bin_http_directory(test_bin_path: Path) -> None:
+    """http(s) autoindex URL: download_dir materializes a local package directory."""
+    url = 'https://example.com/firmware/SSC_OTA_FLASH'
+
+    def _fake_download_dir(
+        remote: str,
+        local_dir: str,
+        timeout: object = None,
+        progress: bool = True,
+        whitelist: object = None,
+    ) -> None:
+        assert remote == url
+        if os.path.isfile(local_dir):
+            os.remove(local_dir)
+        shutil.copytree(str(test_bin_path), local_dir)
+
+    bin_path_to_dir_or_bin.cache_clear()
+    with patch.object(parse_bin_path_module, 'download_dir', side_effect=_fake_download_dir):
+        resolved = bin_path_to_dir_or_bin(url, check_valid=True)
+    assert Path(resolved).is_dir()
+    assert (Path(resolved) / 'partition_table').is_dir()
+    assert (Path(resolved) / 'flasher_args.json').is_file()
+    parsed = ParseBinPath(resolved)
+    assert parsed._mode == 'standard'
+
+
 def test_parse_bin_path_bare_merged_sets_mode(merged_bin_file: Path) -> None:
     parsed = ParseBinPath(merged_bin_file)
     assert parsed._mode == 'merged'
