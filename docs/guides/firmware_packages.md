@@ -39,6 +39,13 @@ esp-downbin ./build -p ttyUSB0
 Zip archives and `http(s)` URLs that unpack to this layout work the same way
 via `bin_path_to_dir` / `ParseBinPath`.
 
+`bin_path_to_dir_or_bin` flags:
+
+- `allow_merged=True, check_valid=True` — keep/probe a merged `.bin`
+- `allow_raw=True, check_valid=True` — keep a bare `.bin` without merged
+  probing; directories must be a `raw_flash.json` package
+- `allow_merged` and `allow_raw` are mutually exclusive
+
 ## Raw (`raw_flash.json`)
 
 Use a raw package when you flash a single image at a fixed offset (special
@@ -131,15 +138,21 @@ CLI examples:
 # package directory (marker present)
 esp-downbin ./my_raw_pkg --raw -p ttyUSB0
 
+# local or http(s) zip of a raw package
+esp-downbin ./my_raw_pkg.zip --raw -p ttyUSB0
+esp-downbin https://example.com/my_raw_pkg.zip --raw -p ttyUSB0
+
 # override offset/chip without editing the package
 esp-downbin ./my_raw_pkg --raw --offset 0x2000 --chip esp32s3 -p ttyUSB0
 
 # bare .bin — requires --offset and --chip (builds a temp raw package)
 esp-downbin ./firmware.bin --raw --offset 0x1000 --chip esp32 -p ttyUSB0
+esp-downbin https://example.com/firmware.bin --raw --offset 0x1000 --chip esp32 -p ttyUSB0
 ```
 
 `--raw` and `--merged` are mutually exclusive. For `--raw`, NVS erase is
-disabled (raw mode has no partition table to erase).
+disabled (raw mode has no partition table to erase). Local paths and
+`http(s)` URLs are resolved the same way.
 
 ## Merged (esptool `merge-bin`)
 

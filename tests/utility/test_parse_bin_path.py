@@ -395,6 +395,53 @@ def test_bin_path_to_dir_http_merged_bin_rejected(merged_bin_file: Path) -> None
             bin_path_to_dir(url)
 
 
+def test_bin_path_to_dir_or_bin_allow_raw_keeps_bin(tmp_path: Path) -> None:
+    """allow_raw keeps a bare .bin without merged probing."""
+    src = tmp_path / 'rf.bin'
+    src.write_bytes(b'\xe9' + b'\x00' * 31)
+    bin_path_to_dir_or_bin.cache_clear()
+    resolved = bin_path_to_dir_or_bin(str(src), allow_raw=True, check_valid=True)
+    assert Path(resolved).resolve() == src.resolve()
+    assert Path(resolved).is_file()
+
+
+def test_bin_path_to_dir_or_bin_allow_raw_validates_raw_dir(tmp_path: Path) -> None:
+    pkg = _make_raw_pkg(tmp_path)
+    bin_path_to_dir_or_bin.cache_clear()
+    resolved = bin_path_to_dir_or_bin(str(pkg), allow_raw=True, check_valid=True)
+    assert Path(resolved).resolve() == pkg.resolve()
+
+
+def test_bin_path_to_dir_or_bin_allow_raw_rejects_standard_dir(test_bin_path: Path) -> None:
+    bin_path_to_dir_or_bin.cache_clear()
+    with pytest.raises(ValueError, match='raw'):
+        bin_path_to_dir_or_bin(str(test_bin_path), allow_raw=True, check_valid=True)
+
+
+def test_bin_path_to_dir_or_bin_allow_raw_and_merged_mutex(tmp_path: Path) -> None:
+    src = tmp_path / 'x.bin'
+    src.write_bytes(b'\xe9\x00')
+    bin_path_to_dir_or_bin.cache_clear()
+    with pytest.raises(ValueError, match='mutually exclusive'):
+        bin_path_to_dir_or_bin(str(src), allow_raw=True, allow_merged=True)
+
+
+def test_bin_path_to_dir_or_bin_http_raw_bin(tmp_path: Path) -> None:
+    src = tmp_path / 'rf.bin'
+    src.write_bytes(b'\xe9' + b'\x00' * 31)
+    url = 'https://example.com/firmware/rf.bin'
+
+    def _fake_download(remote: str, local_filename: str, timeout: object = None, progress: bool = True) -> None:
+        assert remote == url
+        shutil.copy(str(src), local_filename)
+
+    bin_path_to_dir_or_bin.cache_clear()
+    with patch.object(parse_bin_path_module, 'download_file', side_effect=_fake_download):
+        resolved = bin_path_to_dir_or_bin(url, allow_raw=True, check_valid=True)
+    assert Path(resolved).is_file()
+    assert Path(resolved).name == 'rf.bin'
+
+
 def test_parse_bin_path_bare_merged_sets_mode(merged_bin_file: Path) -> None:
     parsed = ParseBinPath(merged_bin_file)
     assert parsed._mode == 'merged'
@@ -683,6 +730,28 @@ def test_parse_bin_path_raw_dir_sets_mode(tmp_path: Path) -> None:
     parsed = ParseBinPath(pkg)
     assert parsed._mode == 'raw'
     assert parsed.chip == 'esp32'
+
+
+def test_bin_path_to_dir_raw_package_no_partition_table_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A raw_flash.json package has no partition_table by design; do not warn."""
+    pkg = _make_raw_pkg(tmp_path)
+    bin_path_to_dir_or_bin.cache_clear()
+    with caplog.at_level(logging.WARNING, logger='parse_bin_path'):
+        resolved = bin_path_to_dir(str(pkg))
+    assert Path(resolved).resolve() == pkg.resolve()
+    assert 'partition_table' not in caplog.text
+
+
+def test_bin_path_to_dir_plain_dir_still_warns(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    plain = tmp_path / 'plain'
+    plain.mkdir()
+    (plain / 'fw.bin').write_bytes(b'\xe9' + b'\x00' * 15)
+    bin_path_to_dir_or_bin.cache_clear()
+    with caplog.at_level(logging.WARNING, logger='parse_bin_path'):
+        bin_path_to_dir(str(plain))
+    assert 'partition_table' in caplog.text
 
 
 def test_parse_bin_path_standard_beats_raw_marker(test_bin_path: Path, tmp_path: Path) -> None:
