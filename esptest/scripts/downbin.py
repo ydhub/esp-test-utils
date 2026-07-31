@@ -10,7 +10,7 @@ from pathlib import Path
 import esptest.common.compat_typing as t
 from esptest.devices.serial_tools import get_all_serial_ports
 from esptest.tools.download_bin import bin_path_to_dir, bin_path_to_dir_or_bin, download_bin_to_ports
-from esptest.utility.raw_flash import is_raw_bin_dir, load_raw_flash, materialize_raw_dir, write_raw_flash
+from esptest.utility.raw_flash import load_raw_flash, materialize_raw_dir, write_raw_flash
 
 
 def prepare_download_target(args: argparse.Namespace) -> t.Tuple[str, bool]:
@@ -22,34 +22,37 @@ def prepare_download_target(args: argparse.Namespace) -> t.Tuple[str, bool]:
     bin_path = args.bin_path or './build'
 
     if args.raw:
+        try:
+            bin_path = bin_path_to_dir_or_bin(bin_path, allow_raw=True, check_valid=True)
+        except Exception as e:  # pylint: disable=broad-except
+            print(
+                f'error: --raw requires a .bin file, .zip archive, or raw package directory: {bin_path} ({e})',
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
         path = Path(bin_path)
-        if path.is_file() and path.suffix.lower() == '.bin':
+        if path.is_file():
             if not args.offset or not args.chip:
                 print('error: --raw bare .bin requires --offset and --chip', file=sys.stderr)
                 sys.exit(2)
             return materialize_raw_dir(str(path), offset=args.offset, chip=args.chip), False
 
-        if path.is_dir():
-            if not is_raw_bin_dir(path):
-                print(f'error: not a raw bin package directory: {bin_path}', file=sys.stderr)
-                sys.exit(2)
-            if args.offset or args.chip:
-                parent = Path(tempfile.mkdtemp(prefix='raw_bin_'))
-                pkg = parent / 'pkg'
-                shutil.copytree(path, pkg)
-                raw = load_raw_flash(path)
-                write_raw_flash(
-                    pkg,
-                    offset=args.offset or raw['offset'],
-                    chip=args.chip or raw['chip'],
-                    file=str(raw['file']),
-                    write_flash_args=raw.get('write_flash_args'),
-                )
-                return str(pkg.resolve()), False
-            return str(path.resolve()), False
-
-        print(f'error: --raw requires a .bin file or raw package directory: {bin_path}', file=sys.stderr)
-        sys.exit(2)
+        # Directory is already validated as a raw package by the resolver.
+        if args.offset or args.chip:
+            parent = Path(tempfile.mkdtemp(prefix='raw_bin_'))
+            pkg = parent / 'pkg'
+            shutil.copytree(path, pkg)
+            raw = load_raw_flash(path)
+            write_raw_flash(
+                pkg,
+                offset=args.offset or raw['offset'],
+                chip=args.chip or raw['chip'],
+                file=str(raw['file']),
+                write_flash_args=raw.get('write_flash_args'),
+            )
+            return str(pkg.resolve()), False
+        return str(path.resolve()), False
 
     if args.merged:
         return bin_path_to_dir_or_bin(bin_path, allow_merged=True, check_valid=True), False
@@ -84,7 +87,7 @@ def main() -> None:
         action='store_true',
         help='treat bin_path as a raw merged .bin (esptool merge-bin output)',
     )
-    parser.add_argument('--raw', action='store_true', help='flash a raw offset-based package or bare .bin')
+    parser.add_argument('--raw', action='store_true', help='flash a raw offset-based package, .zip, or bare .bin')
     parser.add_argument('--offset', type=str, default=None, help='flash offset for --raw (e.g. 0x1000)')
     parser.add_argument('--chip', type=str, default=None, help='target chip for --raw (e.g. esp32)')
     parser.add_argument('-v', '--verbose', action='count', default=0, help='verbose output')

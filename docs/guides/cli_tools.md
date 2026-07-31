@@ -38,9 +38,12 @@ esp-downbin ./build --all                  # every detected serial port
 esp-downbin ./build --range 0-10           # ttyUSB0 .. ttyUSB10 (Linux)
 esp-downbin ./build -b 921600 --no-erase-nvs
 esp-downbin ./merged.bin --merged -p ttyUSB0   # esptool merge-bin image
-# raw offset-based package or bare .bin
+# raw offset-based package, .zip, or bare .bin
 esp-downbin ./my_raw_pkg --raw -p ttyUSB0
+esp-downbin ./my_raw_pkg.zip --raw -p ttyUSB0
+esp-downbin https://example.com/my_raw_pkg.zip --raw -p ttyUSB0
 esp-downbin ./firmware.bin --raw --offset 0x1000 --chip esp32 -p ttyUSB0
+esp-downbin https://example.com/firmware.bin --raw --offset 0x1000 --chip esp32 -p ttyUSB0
 ```
 
 Useful options: `--baudrate/-b`, `--max-workers`, `--force-no-stub`,
@@ -50,10 +53,11 @@ Useful options: `--baudrate/-b`, `--max-workers`, `--force-no-stub`,
   not a standard/raw package and contains exactly one valid merged `.bin`.
   Standard IDF layouts and `raw_flash.json` packages still win when present.
   Disables NVS erase.
-- `--raw` — flash a `raw_flash.json` package directory, or a bare `.bin`
-  (then `--offset` and `--chip` are required). Optional `--offset` /
-  `--chip` override fields in an existing package. Mutually exclusive with
-  `--merged`. Disables NVS erase.
+- `--raw` — flash a `raw_flash.json` package directory, a `.zip` of such a
+  package, or a bare `.bin` (then `--offset` and `--chip` are required).
+  Archives and bins may be local paths or `http(s)` URLs. Optional
+  `--offset` / `--chip` override fields in an existing package. Mutually
+  exclusive with `--merged`. Disables NVS erase.
 
 ## `esp-copybin`
 

@@ -57,19 +57,28 @@ def _is_bin_ref(bin_path: str) -> bool:
 def bin_path_to_dir_or_bin(
     bin_path: str,
     allow_merged: bool = False,
+    allow_raw: bool = False,
     check_valid: bool = False,
 ) -> str:
-    """Resolve *bin_path* to a local directory or (when allowed) a merged ``.bin``.
+    """Resolve *bin_path* to a local directory or (when allowed) a bare ``.bin``.
 
     Supports local paths and ``http(s)`` URLs (downloaded first, then handled
-    like a local path). With ``allow_merged=True``, a ``.bin`` file is kept as
-    a file path instead of requiring a zip/directory. With ``check_valid=True``,
-    a resolved ``.bin`` must pass merged-bin probing.
+    like a local path).
+
+    - ``allow_merged=True``: keep a ``.bin`` file path; with ``check_valid`` it
+      must pass merged-bin probing. Directories may also resolve via a single
+      merged ``.bin`` when no standard/raw package is present.
+    - ``allow_raw=True``: keep a ``.bin`` file path without merged probing.
+      With ``check_valid``, directories must be a ``raw_flash.json`` package.
+    - ``allow_merged`` and ``allow_raw`` are mutually exclusive.
 
     Returns:
-        Absolute path to a directory, or to a merged ``.bin`` file when
-        ``allow_merged`` is enabled.
+        Absolute path to a directory, or to a ``.bin`` file when
+        ``allow_merged`` / ``allow_raw`` is enabled.
     """
+    if allow_merged and allow_raw:
+        raise ValueError('allow_merged and allow_raw are mutually exclusive')
+
     bin_hash = hash(bin_path)
     bin_base_name = _path_basename(bin_path)
 
@@ -80,10 +89,10 @@ def bin_path_to_dir_or_bin(
         bin_path = new_bin_path
 
     if _is_bin_ref(bin_path) and os.path.isfile(bin_path):
-        if not allow_merged:
+        if not allow_merged and not allow_raw:
             raise ValueError(f'merged .bin not allowed without allow_merged=True: {bin_path}')
         resolved = os.path.realpath(bin_path)
-        if check_valid:
+        if check_valid and allow_merged:
             probe_merged_bin(Path(resolved))
         return resolved
 
@@ -107,6 +116,11 @@ def bin_path_to_dir_or_bin(
     bin_path = os.path.realpath(bin_path)
     if check_valid:
         root = Path(bin_path)
+        if allow_raw:
+            if not is_raw_bin_dir(root):
+                raise ValueError(f'not a raw bin package directory: {bin_path}')
+            load_raw_flash(root)
+            return bin_path
         if is_standard_bin_dir(root):
             return bin_path
         if is_raw_bin_dir(root):
@@ -118,7 +132,7 @@ def bin_path_to_dir_or_bin(
             return bin_path
         if 'partition_table' not in os.listdir(bin_path):
             raise ValueError(f'Can not find partition_table from bin_path: {bin_path}')
-    elif 'partition_table' not in os.listdir(bin_path):
+    elif not is_raw_bin_dir(Path(bin_path)) and 'partition_table' not in os.listdir(bin_path):
         logger.warning('Can not find partition_table from bin_path, maybe invalid!')
     return bin_path
 
@@ -129,7 +143,7 @@ def bin_path_to_dir(bin_path: str, check_valid: bool = False) -> str:
     Returns:
         Absolute path to a directory.
     """
-    return bin_path_to_dir_or_bin(bin_path, allow_merged=False, check_valid=check_valid)
+    return bin_path_to_dir_or_bin(bin_path, allow_merged=False, allow_raw=False, check_valid=check_valid)
 
 
 def get_baud_from_bin_path(bin_path: t.Union[str, Path]) -> int:
