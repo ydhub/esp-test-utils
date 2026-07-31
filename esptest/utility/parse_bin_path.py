@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import esptest.common.compat_typing as t
 
 # pylint 在将 utility 视为顶层时判定“相对导入越级”，故禁用此检查
-from ..tools.http_download import download_file  # pylint: disable=relative-beyond-top-level
+from ..tools.http_download import download_dir, download_file  # pylint: disable=relative-beyond-top-level
 from .merged_bin import (  # pylint: disable=relative-beyond-top-level
     MergedBinMeta,
     PartitionInfo,
@@ -63,7 +63,9 @@ def bin_path_to_dir_or_bin(
     """Resolve *bin_path* to a local directory or (when allowed) a bare ``.bin``.
 
     Supports local paths and ``http(s)`` URLs (downloaded first, then handled
-    like a local path).
+    like a local path). ``.bin`` / ``.zip`` URLs use ``download_file``; other
+    http(s) URLs are treated as autoindex directories and fetched via
+    ``download_dir`` (full tree, no whitelist).
 
     - ``allow_merged=True``: keep a ``.bin`` file path; with ``check_valid`` it
       must pass merged-bin probing. Directories may also resolve via a single
@@ -80,12 +82,15 @@ def bin_path_to_dir_or_bin(
         raise ValueError('allow_merged and allow_raw are mutually exclusive')
 
     bin_hash = hash(bin_path)
-    bin_base_name = _path_basename(bin_path)
+    bin_base_name = _path_basename(bin_path) or 'download'
 
     if bin_path.startswith('http://') or bin_path.startswith('https://'):
         new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
         os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
-        download_file(bin_path, new_bin_path)
+        if _is_bin_ref(bin_path) or _is_zip_ref(bin_path):
+            download_file(bin_path, new_bin_path)
+        else:
+            download_dir(bin_path, new_bin_path)
         bin_path = new_bin_path
 
     if _is_bin_ref(bin_path) and os.path.isfile(bin_path):
