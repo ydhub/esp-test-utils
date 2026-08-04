@@ -34,6 +34,15 @@ pip install "esp-test-utils[all]"
 | `idfci`  | `pyecharts`, `python-gitlab`, `minio`                      |
 | `all`    | `idfci` packages plus `esp-idf-monitor` and `scapy`        |
 
+```{note}
+**Draft Multimeter / GPIB** does not use a pip extra. Install drivers yourself:
+
+- VISA / Windows: ``pip install pyvisa``
+- Linux native GPIB: system **linux-gpib** package providing ``import Gpib``
+
+See {doc}`guides/multimeter` (GPIB section: {doc}`guides/multimeter_gpib`).
+```
+
 ## Development install
 
 Clone the repository and install it in editable mode with the development
