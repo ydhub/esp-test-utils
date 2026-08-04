@@ -58,12 +58,14 @@ def main() -> None:
         return
 
     print('All devices:')
-    print('Device           Location     target  version xtal mac                 description')
+    print('Device           Location     target   version  xtal    mac                  description')
     for port in list_all_esp_ports():
         if port.support_esptool:
+            xtal = f'{port.chip_xtal}MHz' if port.chip_xtal else ''
             print(
                 f'{port.device:16s} {port.location:12s} {port.target:8s} '
-                f'{port.chip_version:8s} {port.mac:20s} {port.chip_description} - {port.serial_description}'
+                f'{port.chip_version:8s} {xtal:7s} {port.mac:20s} '
+                f'{port.chip_description}'
             )
         else:
             print(f'{port.device:16s} {port.location:12s}  -----  {port.serial_description} [not esp port]')
