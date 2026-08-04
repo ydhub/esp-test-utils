@@ -1,3 +1,9 @@
+## v0.6.1 (2026-08-04)
+
+
+- feat(http_download): add download_dir for HTTP autoindex packages (a8ef6a9)
+- feat(downbin): support zip/http for --raw via allow_raw (ff67dee)
+
 ## v0.6.0 (2026-07-29)
 
 
