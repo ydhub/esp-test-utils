@@ -27,6 +27,7 @@ def test_global_config_defaults() -> None:
     assert gc.g.PORT_EXPECT_TIMEOUT == 30
     assert gc.g.DATA_CACHE_SIZE_LIMIT == 1 * 1024 * 1024
     assert gc.g.PORT_SPAWN_MAXREAD == 10 * 1024
+    assert gc.g.ALLOW_SERIAL_ERROR_RECONNECT_COUNT == 0
     assert gc.g.SKIP_ESPTOOL_DETECT_VID_PID == frozenset([(0x303A, 0x4001)])
 
 

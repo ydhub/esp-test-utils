@@ -67,6 +67,19 @@ class EspSerial:
         # For PortSpawn
         return self._serial.timeout or 0.001  # type: ignore
 
+    @property
+    def is_open(self) -> bool:
+        return bool(self._serial.is_open)
+
+    def open(self) -> None:
+        # For PortSpawn reconnect after a serial read error
+        if not self._serial.is_open:
+            self._serial.open()
+
+    def close(self) -> None:
+        if self._serial.is_open:
+            self._serial.close()
+
     def read_bytes(self, timeout: float = 0.001) -> bytes:
         # For PortSpawn
         assert self._serial.timeout
@@ -222,7 +235,11 @@ class EspMixin(BaseProtocol):
     def hard_reset(self) -> None:
         # Same-port + support_esptool: esp handle on log UART.
         if self.esp:
-            self.esp.hard_reset()
+            # esptool toggles DTR/RTS and HUPCL on the very fd the redirect thread reads
+            # from. Reading concurrently can raise a spurious SerialException, so stop
+            # the reader first (same pattern as change_serial_config / download_bin).
+            with self.disable_redirect_thread():
+                self.esp.hard_reset()
             return
         # Dual-UART or serial log: reset via download port when esptool is enabled.
         download = _download_device_from_config(self.dut_config)
@@ -366,7 +383,11 @@ class EspMixin(BaseProtocol):
 
     def start_redirect_thread(self) -> None:
         if self.esp:
-            self.esp._port.open()  # pylint: disable=protected-access
+            # esptool reopens the port itself when it needs one (eg. ResetStrategy
+            # opens a closed port before toggling DTR/RTS), and pyserial raises
+            # "Port is already open." on a second open().
+            if not self.esp._port.is_open:  # pylint: disable=protected-access
+                self.esp._port.open()  # pylint: disable=protected-access
             if self.log_file:
                 with open(self.log_file, 'a', encoding='utf-8') as log_f:
                     log_f.write(

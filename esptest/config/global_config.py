@@ -47,7 +47,7 @@ class DefaultConfig:
     # port spawn maxread size, max buffer read for expect process, default 10K
     PORT_SPAWN_MAXREAD = int(os.environ.get('ESPTEST_PORT_SPAWN_MAXREAD', 10 * 1024))
 
-    # allow serial read-thread error reconnect attempts
+    # allow serial read-thread error reconnect attempts (0 = stop the read thread on error)
     ALLOW_SERIAL_ERROR_RECONNECT_COUNT = int(os.environ.get('ESPTEST_ALLOW_SERIAL_ERROR_RECONNECT_COUNT', 0))
 
     # VID:PID pairs skipped by esptool detect_chip during port listing.

@@ -37,6 +37,18 @@ NEVER_MATCHED_MAGIC_STRING = 'o6K,Q.(w+~yr~N9R'
 PEXPECT_DEFAULT_TIMEOUT = g.PORT_EXPECT_TIMEOUT
 
 
+class PortReadError(OSError):
+    """The background read thread is no longer running, no more data can be received.
+
+    Raised instead of waiting for a meaningless ExpectTimeout, so the real serial
+    error is reported rather than a misleading "pattern not found".
+
+    Timing: fail-fast when ``expect`` / ``expect_exact`` starts and the reader is
+    already dead with no pending data. If the reader dies mid-wait, the call still
+    runs to the full timeout, then converts that timeout into ``PortReadError``.
+    """
+
+
 class ExpectTimeout(TimeoutError):
     """raise same ExpectTimeout rather than different Exception from different framework"""
 
@@ -127,6 +139,7 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         # Create a new thread to read data from serial port
         self._read_queue: queue.Queue = queue.Queue()
         self._read_thread_stop_event = threading.Event()
+        self._read_error: t.Optional[BaseException] = None
         # callbacks
         self._rx_log_callback: t.Optional[t.Callable[[str, bytes], None]] = kwargs.get('rx_log_callback', None)
         # monitors
@@ -161,6 +174,20 @@ class PortSpawn(SpawnBase, t.Generic[T]):
     @property
     def data_cache(self) -> str:
         return self._data_cache.decode('utf-8', errors='replace')
+
+    @property
+    def read_thread_alive(self) -> bool:
+        return self._read_thread.is_alive()
+
+    @property
+    def read_error(self) -> t.Optional[BaseException]:
+        """The error that terminated the read thread, None if it exited normally."""
+        return self._read_error
+
+    @property
+    def has_pending_data(self) -> bool:
+        """Whether some already-received data is still waiting to be matched."""
+        return bool(self._data_cache or self.buffer or not self._read_queue.empty())
 
     def _write_port_log(self, data: bytes) -> None:
         """Write serial outputs to log file"""
@@ -239,6 +266,8 @@ class PortSpawn(SpawnBase, t.Generic[T]):
                     self.logger.critical(f'{self.name} reconnected after error {type(e)}: {str(e)}')
                     new_data = f'[PortException] reconnected after error {type(e)}: {str(e)}\n'.encode()
                 else:
+                    # Record the error so expect() can report it rather than time out silently.
+                    self._read_error = e
                     self._write_port_log(to_bytes(f'[PortException] {type(e)}: {str(e)}\n'))
                     return
             if new_data:
@@ -333,6 +362,11 @@ def handle_expect_timeout(func: t.Callable) -> t.Callable:
                     data_in_buffer = obj._pexpect_spawn.before  # pylint: disable=protected-access
             except AttributeError:
                 pass  # ignore
+            # Prefer PortReadError when the reader is already dead: waiting longer
+            # cannot help, and the original SerialException is more useful than TIMEOUT.
+            spawn = obj._pexpect_spawn  # pylint: disable=protected-access
+            if spawn is not None and hasattr(spawn, 'read_thread_alive') and not spawn.read_thread_alive:
+                raise PortReadError(f'{obj.name} port read thread stopped: {spawn.read_error}') from e
             obj.logger.debug(f'ExpectTimeout: {str(e)}, data_in_buffer={repr(data_in_buffer)}')
             raise ExpectTimeout(str(e), data_in_buffer=data_in_buffer) from e
         return result
@@ -508,6 +542,16 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
             if stopped:
                 self.start_redirect_thread()
 
+    def _check_read_thread(self) -> None:
+        """Fail fast when the read thread died and all received data was consumed."""
+        spawn = self._pexpect_spawn
+        # ShellPort uses pexpect.spawn (no PortSpawn read-thread helpers).
+        if not spawn or not hasattr(spawn, 'read_thread_alive'):
+            return
+        if spawn.read_thread_alive or spawn.has_pending_data:
+            return
+        raise PortReadError(f'{self.name} port read thread stopped: {spawn.read_error}')
+
     def write(self, data: t.AnyStr) -> None:
         if self._pexpect_spawn:
             return self._pexpect_spawn.write(data)
@@ -527,6 +571,7 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
     def expect_exact(self, pattern: t.Union[str, bytes], timeout: float) -> None:
         """this is similar to expect(), but only uses plain string/bytes matching"""
         if self.spawn:
+            self._check_read_thread()
             pexpect_pattern = to_bytes(pattern)
             self.spawn.expect_exact(pexpect_pattern, timeout=timeout)
             return
@@ -565,6 +610,7 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
             t.Optional[re.Match]: match result if the input pattern is re.Pattern
         """
         if self._pexpect_spawn:
+            self._check_read_thread()
             if isinstance(pattern, (bytes, str)):
                 self._pexpect_spawn.expect_exact(pattern, timeout=timeout)
                 return None
@@ -611,6 +657,9 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
                     new_data = match.group(0)
                 except TimeoutError:
                     pass
+                except PortReadError:
+                    # read thread is gone, return the data received before that
+                    break
                 if not new_data:
                     break
                 buffer += new_data
