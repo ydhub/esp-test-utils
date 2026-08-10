@@ -1,3 +1,11 @@
+## v0.6.2 (2026-08-10)
+
+
+- feat(multimeter): Draft add GPIB Multimeter API (39889ed)
+- feat(testcase): emit case started_at as testcase timestamp (f36004c)
+- fix(adapter): stop log reader during same-port hard_reset (642f02f)
+- fix(list_ports): show xtal in esp-listports text output (db86b33)
+
 ## v0.6.1 (2026-08-04)
 
 
