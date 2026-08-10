@@ -174,8 +174,7 @@ def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
         properties['logs'] = _json_dumps(test_case.logs)
     if test_case.result_detail_files:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
-    if test_case.started_at is not None:
-        properties['started_at'] = test_case.started_at
+    # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
     return properties
 
 
@@ -208,6 +207,8 @@ def _test_case_to_xml(test_case: TestCaseResult) -> ET.Element:
         attrs['classname'] = test_case.classname
     if test_case.duration is not None:
         attrs['time'] = _format_time(test_case.duration)
+    if test_case.started_at is not None:
+        attrs['timestamp'] = test_case.started_at
 
     testcase_elem = ET.Element('testcase', attrs)
     _add_properties(testcase_elem, _case_properties(test_case))
@@ -343,7 +344,9 @@ def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = Non
     properties = _parse_properties(testcase_elem)
     result_detail_files = _pop_json_property(properties, 'result_detail_files') or []
     logs = _pop_json_property(properties, 'logs')
-    started_at = properties.pop('started_at', None)
+    # Prefer <testcase timestamp="...">; fall back to legacy property started_at.
+    prop_started_at = properties.pop('started_at', None)
+    started_at = testcase_elem.get('timestamp') or prop_started_at
     status, message, failure_type = _parse_case_status(testcase_elem)
     return TestCaseResult(
         name=testcase_elem.get('name', ''),

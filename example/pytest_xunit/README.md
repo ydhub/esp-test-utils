@@ -106,7 +106,8 @@ Notes:
 
 - One case (`test_expected_fail`) fails on purpose so the report shows a
   `FAILED` entry; the pytest exit code is therefore non-zero. Each `<testcase>`
-  carries a real `started_at` property and a real `time` (execution seconds).
+  carries a real `timestamp` attribute on `<testcase>` (mapped to
+  `started_at` when parsed) and a real `time` (execution seconds).
 
 ## 3. Export cases
 

@@ -420,10 +420,65 @@ def test_begin_case_records_started_at(tmp_path: Path) -> None:
     assert logger.running_case.started_at
     logger.end_case()
 
-    case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
+    report_path = tmp_path / XUNIT_RESULT_FILE_NAME
+    xml_text = report_path.read_text(encoding='utf-8')
+    # started_at is emitted as <testcase timestamp="...">, not a property.
+    assert 'timestamp="' in xml_text
+    assert 'name="started_at"' not in xml_text
+
+    case = parse_xunit_xml(report_path).test_suites[0].test_cases[0]
     assert case.started_at
     # started_at must be a parseable ISO timestamp
     parse_timestamp(case.started_at)
+    assert 'started_at' not in case.properties
+
+
+def test_generate_xunit_xml_writes_started_at_as_testcase_timestamp() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='test_connect',
+                        duration=1.5,
+                        started_at='2026-08-04T11:30:25+0800',
+                        properties={'target': 'esp32'},
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert 'timestamp="2026-08-04T11:30:25+0800"' in xml_text
+    assert 'name="started_at"' not in xml_text
+
+
+def test_parse_xunit_xml_prefers_testcase_timestamp_over_property_started_at() -> None:
+    xml_text = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="2" failures="0" errors="0" skipped="0" time="3">
+  <testsuite name="wifi" tests="2" failures="0" errors="0" skipped="0" time="3">
+    <testcase name="from_attr" time="1" timestamp="2026-08-04T11:30:25+0800">
+      <properties>
+        <property name="started_at" value="2026-01-01T00:00:00+0800" />
+      </properties>
+    </testcase>
+    <testcase name="from_property" time="2">
+      <properties>
+        <property name="started_at" value="2026-07-01T10:00:00+0800" />
+      </properties>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+    suites = parse_xunit_xml(xml_text)
+    cases = suites.test_suites[0].test_cases
+    assert cases[0].started_at == '2026-08-04T11:30:25+0800'
+    assert 'started_at' not in cases[0].properties
+    assert cases[1].started_at == '2026-07-01T10:00:00+0800'
+    assert 'started_at' not in cases[1].properties
 
 
 def test_xunit_logger_carries_stdout_before_case_start(tmp_path: Path) -> None:
