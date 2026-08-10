@@ -47,6 +47,80 @@ later periodic or explicit flush, or when `end_case()` finishes the case.
 `end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
 marks it SKIPPED.
 
+`begin_case` records `TestCaseResult.started_at` (ISO timestamp). On write it
+becomes the `<testcase timestamp="...">` attribute (not a case property).
+`parse_xunit_xml` maps that attribute back to `started_at`, and still accepts
+legacy reports that stored it as property `started_at` (attribute wins if both
+are present).
+
+## Public API reference (`XunitLogger`)
+
+This section lists the stable instance / class APIs most runners need. Full
+signatures live in the Sphinx API pages generated from
+`esptest.testcase.xunit`.
+
+### Case lifecycle
+
+| API | Role |
+| --- | --- |
+| `begin_case(case_id, classname='', category=None)` | Start a case. If one was already open, it is closed as ERROR via `close(...)` first. Optional `category` is stored as a case property. |
+| `end_case(result=True, message='', failure_type='')` | Finish the running case (duration + stdout/stderr), append it to the suite, and flush. `result=False` records a failure (unless one was already set). |
+| `close(message=...)` | Force-finish a still-running case as ERROR (e.g. runner teardown / interrupt), then flush. |
+| `flush(force=False)` | Write the XML report. Without `force=True`, writes are rate-limited by `flush_interval`. |
+
+### Current / last case
+
+| API | Returns | Notes |
+| --- | --- | --- |
+| `running_case` | `TestCaseResult` or `None` | The case started by `begin_case` and not yet finished by `end_case` / `close`. Prefer this when you need “what is running **right now**”. |
+| `has_running_case` | `bool` | `True` iff `running_case is not None`. |
+| `current_test_case` | `TestCaseResult` or `None` | `running_case` if set; otherwise the **last finished** case in the suite. Handy after `end_case` when you still want the just-closed result. |
+| `get_cur_case_id()` | `str` | Name of `current_test_case`, or `''` if none. |
+| `get_cur_case_result()` | `(ok: bool, message: str)` | `ok` is `False` when `current_test_case` is FAILED or ERROR. |
+
+```python
+logger.begin_case('test_assoc', classname='wifi.station')
+assert logger.has_running_case
+assert logger.running_case is not None
+assert logger.get_cur_case_id() == 'test_assoc'
+
+logger.add_failure('assoc timeout', fail_type='timeout')
+ok, msg = logger.get_cur_case_result()
+assert ok is False and 'assoc timeout' in msg
+
+logger.end_case()
+assert logger.running_case is None
+# current_test_case falls back to the case just finished:
+assert logger.current_test_case is not None
+assert logger.current_test_case.name == 'test_assoc'
+```
+
+### Recording status and output
+
+| API | Role |
+| --- | --- |
+| `add_sys_out(message)` / `add_sys_err(message)` | Append to case stdout / stderr (bounded head+tail). Before `begin_case`, text is buffered and prepended to the next case. |
+| `add_failure(message, fail_type=...)` | Mark the **running** case FAILED (may be called before `end_case`). |
+| `add_error(message)` | Mark the running case ERROR. |
+| `add_skipped(message='')` | Mark the running case SKIPPED. |
+| `clear_failures()` | Reset the running case back to PASSED and clear its message. |
+| `set_case_properties(properties)` | Merge string properties into the running case. |
+| `add_case_detail(detail)` | Attach a `ResultDetail`, save its JSON next to the report, and register the relative path. |
+
+`add_failure` / `add_error` / `add_skipped` / `clear_failures` / `set_case_properties` /
+`add_case_detail` all require a running case and raise `RuntimeError` otherwise.
+
+### Suite config
+
+| API | Role |
+| --- | --- |
+| `set_config(config)` / `get_config()` | Update / read suite attrs (`suite_name`, `package`, `file`, `hostname`) and suite properties. |
+| `XunitLogger.set_default_config` / `get_default_config` / `clear_default_config` | Process-wide defaults applied by every **new** instance. |
+
+Useful attributes: `xunit_file` (report path), `test_suite` / `test_suites`
+(in-memory result tree). Module helpers `generate_xunit_xml`, `save_xunit_xml`,
+and `parse_xunit_xml` are covered in the sections below.
+
 ## Suite config and process-wide defaults
 
 `set_config()` updates the current suite. Known keys are `suite_name`,

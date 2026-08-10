@@ -32,10 +32,22 @@ def xunit_logger_example(output_dir: str) -> Path:
     logger.add_sys_out('got ip 192.168.1.23')
     logger.end_case()
 
-    # A failing case: end_case(result=False) marks it FAILED with a message.
+    # A failing case recorded mid-run with add_failure, then finished with end_case.
+    # running_case / get_cur_case_* expose the in-progress case for runners/hooks.
     logger.begin_case('test_disconnect', classname='wifi.station')
+    assert logger.has_running_case
+    assert logger.running_case is not None
+    assert logger.get_cur_case_id() == 'test_disconnect'
     logger.add_sys_err('serial closed unexpectedly')
-    logger.end_case(result=False, message='disconnect timeout', failure_type='timeout')
+    logger.add_failure('disconnect timeout', fail_type='timeout')
+    ok, msg = logger.get_cur_case_result()
+    assert ok is False and msg == 'disconnect timeout'
+    logger.end_case()
+    # After end_case, running_case is cleared; current_test_case falls back to
+    # the case that just finished.
+    assert logger.running_case is None
+    assert logger.current_test_case is not None
+    assert logger.current_test_case.name == 'test_disconnect'
 
     # A skipped case.
     logger.begin_case('test_wpa3', classname='wifi.station')

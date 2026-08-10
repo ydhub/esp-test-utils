@@ -5,7 +5,8 @@ This complements ``run_example.py``: after a run produces
 reads it back with :func:`esptest.testcase.xunit.parse_xunit_xml` and emits a
 YAML manifest suitable for importing test results elsewhere.
 
-Unlike a raw junit file, esptest reports carry a real per-case ``started_at`` and
+Unlike a raw junit file, esptest reports carry a real per-case start time
+(``<testcase timestamp="...">``, exposed as ``case.started_at``) and
 ``time`` (duration), plus optional ``result_details`` (loaded from the ``.json``
 files referenced by each case), so this script can map them directly.
 
