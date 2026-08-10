@@ -155,6 +155,36 @@ esptool operations through `download_device`.
 
 A runnable sample is `espat_dut_reset` in `example/espat_dut.py`.
 
+### Sharing the serial port with other tools
+
+A background thread reads the log port continuously. Anything else that touches
+the same serial device at the same time (esptool, espefuse, a monitor script)
+can make that read fail with
+`device reports readiness to read but returned no data`. Stop the reader first:
+
+```python
+# Port is closed and reopened. Output during that window is lost.
+with dut.disable_redirect_thread():
+    subprocess.run([sys.executable, '-m', 'esptool', '--port', port, 'flash_id'])
+```
+
+`hard_reset()`, `download_bin()` and `download_partition()` already take care of
+this internally.
+
+If the read thread does hit a serial error it reopens the port up to
+`ESPTEST_ALLOW_SERIAL_ERROR_RECONNECT_COUNT` times (default `0` = disabled).
+Once the retries are used up the thread stops. Later `expect()` /
+`expect_exact()` raise
+{class}`~esptest.adapter.port.base_port.PortReadError` with the original
+serial error instead of a misleading pattern-not-found timeout, with this
+timing:
+
+- **Before waiting**: if the reader is already dead and no pending data remains,
+  raise immediately.
+- **During waiting**: if the reader dies mid-expect, the call still waits for the
+  full timeout; only then is the timeout converted to `PortReadError`.
+  Mid-expect fail-fast is not implemented in this change.
+
 ## Custom DUT classes
 
 You can attach mixins by passing a custom class to `wrap_cls`. It must derive

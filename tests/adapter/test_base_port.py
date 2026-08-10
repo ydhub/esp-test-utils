@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from esptest.adapter.port.base_port import BasePort, RawPort
+from esptest.adapter.port.base_port import BasePort, PortReadError, RawPort
 from esptest.common.data_monitor import DataMonitor
 from esptest.config.global_config import g
 
@@ -210,5 +210,69 @@ def test_base_port_disable_redirect_thread_restores_after_exception() -> None:
         assert port.spawn is not None
         raw_port.feed_data(b'hello after restore\n')
         port.expect_exact('hello after restore', timeout=2)
+    finally:
+        port.close()
+
+
+def test_base_port_expect_raises_port_read_error_when_read_thread_dead(monkeypatch) -> None:  # type: ignore
+    """After the read thread dies, expect must fail fast instead of silent timeout."""
+    monkeypatch.setattr(g, 'ALLOW_SERIAL_ERROR_RECONNECT_COUNT', 0)
+    raw_port = MockReconnectRawPort('device reports readiness to read but returned no data')
+    port = BasePort(raw_port, name='dead_reader')
+    try:
+        assert port.spawn is not None
+        timeout = time.time() + 1
+        while time.time() < timeout:
+            if not port.spawn.read_thread_alive:
+                break
+            time.sleep(0.01)
+        assert not port.spawn.read_thread_alive
+        with pytest.raises(PortReadError, match='read thread stopped'):
+            port.expect('Hello world', timeout=2)
+        with pytest.raises(PortReadError, match='read thread stopped'):
+            port.expect_exact('Hello world', timeout=2)
+    finally:
+        port.close()
+
+
+def test_base_port_expect_consumes_pending_data_before_port_read_error(monkeypatch) -> None:  # type: ignore
+    """Pending data received before the thread died must still match."""
+    monkeypatch.setattr(g, 'ALLOW_SERIAL_ERROR_RECONNECT_COUNT', 0)
+
+    class KillAfterFeedPort(MockReconnectRawPort):
+        def __init__(self) -> None:
+            super().__init__('serial gone')
+            self._raise_once = False  # allow first reads to succeed
+
+        def kill_next_read(self) -> None:
+            self._raise_once = True
+
+    raw_port = KillAfterFeedPort()
+    port = BasePort(raw_port, name='pending_then_dead')
+    try:
+        raw_port.feed_data(b'Hello world\n')
+        # wait until the data is in the spawn queue/cache
+        timeout = time.time() + 1
+        while time.time() < timeout:
+            assert port.spawn is not None
+            if port.spawn.has_pending_data:
+                break
+            time.sleep(0.01)
+        assert port.spawn is not None
+        assert port.spawn.has_pending_data
+        raw_port.kill_next_read()
+        timeout = time.time() + 1
+        while time.time() < timeout:
+            if not port.spawn.read_thread_alive:
+                break
+            time.sleep(0.01)
+        assert not port.spawn.read_thread_alive
+        # still match the data that arrived before the death
+        port.expect_exact('Hello world', timeout=2)
+        # leftover bytes (e.g. '\n') are still pending; drain them first
+        port.flush_data()
+        # next expect has nothing left and must raise PortReadError
+        with pytest.raises(PortReadError, match='read thread stopped'):
+            port.expect_exact('next line', timeout=2)
     finally:
         port.close()

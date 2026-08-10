@@ -35,6 +35,7 @@ class EspMixinHarness(_ChangeSerialParent):
         self._esp = esp
         self._log_file = log_file
         self.hard_reset_calls = 0
+        self.disable_redirect_calls = 0
         self._chip_info = None
         self._download_port: t.Optional[t.Any] = None
 
@@ -70,6 +71,7 @@ class EspMixinHarness(_ChangeSerialParent):
 
     @contextlib.contextmanager
     def disable_redirect_thread(self) -> t.Generator[None, None, None]:
+        self.disable_redirect_calls += 1
         yield
 
     def hard_reset(self) -> None:
@@ -261,6 +263,24 @@ def test_hard_reset_reuses_esp_when_download_matches_log() -> None:
     EspMixin.hard_reset(harness)  # type: ignore[arg-type]
 
     esp.hard_reset.assert_called_once()
+    # same-port hard_reset must stop the log reader so DTR/RTS toggles do not
+    # race with the background serial read thread
+    assert harness.disable_redirect_calls == 1
+
+
+def test_esp_serial_open_close_proxies_underlying_serial() -> None:
+    from esptest.adapter.dut.esp_mixin import EspSerial
+
+    esp = _make_esp()
+    esp._port.is_open = True
+    serial_port = EspSerial(esp)
+
+    assert serial_port.is_open is True
+    serial_port.close()
+    esp._port.close.assert_called_once()
+    esp._port.is_open = False
+    serial_port.open()
+    esp._port.open.assert_called_once()
 
 
 def test_log_port_hosts_esp() -> None:
@@ -633,6 +653,35 @@ class EspMixinRedirectHarness(EspMixin, _RedirectParent):
     def log_file(self) -> str:
         return self._log_file
 
+    @contextlib.contextmanager
+    def disable_redirect_thread(self) -> t.Generator[None, None, None]:
+        """Same semantics as DutBase.disable_redirect_thread."""
+        stopped = self.stop_redirect_thread()
+        try:
+            yield
+        finally:
+            if stopped:
+                self.start_redirect_thread()
+
+
+def _make_stateful_esp() -> mock.MagicMock:
+    """esp mock whose _port.is_open really follows open() / close(), like pyserial."""
+    esp = _make_esp()
+    port = esp._port
+    port.is_open = True
+
+    def _open() -> None:
+        if port.is_open:
+            raise serial.SerialException('Port is already open.')
+        port.is_open = True
+
+    def _close() -> None:
+        port.is_open = False
+
+    port.open.side_effect = _open
+    port.close.side_effect = _close
+    return esp
+
 
 def test_esp_mixin_stop_redirect_stops_spawn_when_port_already_closed() -> None:
     """Closed serial must not skip stopping spawn (otherwise expect has no redirect)."""
@@ -651,15 +700,52 @@ def test_esp_mixin_stop_redirect_stops_spawn_when_port_already_closed() -> None:
 
 
 def test_esp_mixin_stop_redirect_closes_open_port_and_allows_restart() -> None:
-    esp = _make_esp()
-    esp._port.is_open = True
+    esp = _make_stateful_esp()
     harness = EspMixinRedirectHarness(esp=esp)
 
     stopped = harness.stop_redirect_thread()
     assert stopped is True
     assert harness.spawn_running is False
     esp._port.close.assert_called_once()
+    assert esp._port.is_open is False
 
     harness.start_redirect_thread()
     assert harness.spawn_running is True
     esp._port.open.assert_called_once()
+    assert esp._port.is_open is True
+
+
+def test_esp_mixin_start_redirect_skips_open_when_port_already_open() -> None:
+    """esptool may reopen the port itself; a second open() would raise."""
+    esp = _make_stateful_esp()
+    harness = EspMixinRedirectHarness(esp=esp)
+
+    harness.start_redirect_thread()
+
+    esp._port.open.assert_not_called()
+    assert harness.start_calls == 1
+    assert esp._port.is_open is True
+
+
+def test_hard_reset_same_port_survives_esptool_reopening_the_port() -> None:
+    """esptool ResetStrategy opens a closed port; restarting the reader must not raise."""
+    esp = _make_stateful_esp()
+    harness = EspMixinRedirectHarness(esp=esp)
+
+    def _hard_reset() -> None:
+        # mirrors esptool ResetStrategy.__call__: open the port if it was closed
+        if not esp._port.is_open:
+            esp._port.open()
+
+    esp.hard_reset.side_effect = _hard_reset
+
+    EspMixin.hard_reset(harness)  # type: ignore[arg-type]
+
+    esp.hard_reset.assert_called_once()
+    # reader was stopped for the reset and restarted afterwards
+    assert harness.stop_calls == 1
+    assert harness.start_calls == 1
+    assert harness.spawn_running is True
+    # esptool did the reopen, EspMixin must not open() a second time
+    assert esp._port.open.call_count == 1
+    assert esp._port.is_open is True
