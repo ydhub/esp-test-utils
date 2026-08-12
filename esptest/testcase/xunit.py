@@ -175,6 +175,8 @@ def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
     if test_case.result_detail_files:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
     # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
+    if test_case.status == TestCaseStatus.RUNNING:
+        properties.setdefault('running', 'true')
     return properties
 
 
@@ -340,7 +342,11 @@ def _load_result_details(result_detail_files: t.List[str], base_dir: t.Optional[
     return details
 
 
-def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestCaseResult:
+def _parse_test_case(
+    testcase_elem: ET.Element,
+    base_dir: t.Optional[Path] = None,
+    keep_running: bool = False,
+) -> TestCaseResult:
     properties = _parse_properties(testcase_elem)
     result_detail_files = _pop_json_property(properties, 'result_detail_files') or []
     logs = _pop_json_property(properties, 'logs')
@@ -348,6 +354,18 @@ def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = Non
     prop_started_at = properties.pop('started_at', None)
     started_at = testcase_elem.get('timestamp') or prop_started_at
     status, message, failure_type = _parse_case_status(testcase_elem)
+    # Mid-run flushes mark property running=true. Map to RUNNING; by default
+    # (keep_running=False) coerce to ERROR for final/CI readers. Real
+    # failure/error/skipped children still win over a bare running marker.
+    is_running_prop = str(properties.get('running', '')).lower() in ('1', 'true', 'yes')
+    if is_running_prop and status == TestCaseStatus.PASSED:
+        status = TestCaseStatus.RUNNING
+        message = message or 'Test case is still running'
+    elif is_running_prop and status == TestCaseStatus.ERROR and (message or '') == 'Test case is still running':
+        status = TestCaseStatus.RUNNING
+    if not keep_running and status == TestCaseStatus.RUNNING:
+        status = TestCaseStatus.ERROR
+        message = message or 'Test case is still running'
     return TestCaseResult(
         name=testcase_elem.get('name', ''),
         classname=testcase_elem.get('classname', ''),
@@ -365,10 +383,16 @@ def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = Non
     )
 
 
-def _parse_test_suite(testsuite_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestSuiteResult:
+def _parse_test_suite(
+    testsuite_elem: ET.Element,
+    base_dir: t.Optional[Path] = None,
+    keep_running: bool = False,
+) -> TestSuiteResult:
     return TestSuiteResult(
         name=testsuite_elem.get('name', ''),
-        test_cases=[_parse_test_case(elem, base_dir) for elem in testsuite_elem.findall('testcase')],
+        test_cases=[
+            _parse_test_case(elem, base_dir, keep_running=keep_running) for elem in testsuite_elem.findall('testcase')
+        ],
         properties=_parse_properties(testsuite_elem),
         timestamp=testsuite_elem.get('timestamp'),
         package=testsuite_elem.get('package'),
@@ -403,17 +427,27 @@ def parse_xunit_xml(
     xml_or_path: t.Union[str, Path],
     base_dir: t.Optional[t.Union[str, Path]] = None,
     load_result_details: bool = True,
+    keep_running: bool = False,
 ) -> TestSuitesResult:
+    """Parse an xUnit XML report into result dataclasses.
+
+    ``keep_running`` controls mid-run snapshots (property ``running=true``).
+    Default ``False`` maps incomplete cases to ``ERROR`` for final / CI
+    consumers. Live monitors that need ``TestCaseStatus.RUNNING`` should pass
+    ``True``.
+    """
     root = _load_root(xml_or_path)
     resolved_base = _resolve_base_dir(xml_or_path, base_dir) if load_result_details else None
     if root.tag == 'testsuite':
-        return TestSuitesResult(test_suites=[_parse_test_suite(root, resolved_base)])
+        return TestSuitesResult(test_suites=[_parse_test_suite(root, resolved_base, keep_running=keep_running)])
     if root.tag != 'testsuites':
         raise ValueError(f'Unsupported xUnit root element: {root.tag}')
 
     return TestSuitesResult(
         name=root.get('name', 'testsuites'),
-        test_suites=[_parse_test_suite(elem, resolved_base) for elem in root.findall('testsuite')],
+        test_suites=[
+            _parse_test_suite(elem, resolved_base, keep_running=keep_running) for elem in root.findall('testsuite')
+        ],
         properties=_parse_properties(root),
     )
 
@@ -724,7 +758,7 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
         status = self.running_case.status
         message = self.running_case.message
         if status == TestCaseStatus.PASSED:
-            status = TestCaseStatus.ERROR
+            status = TestCaseStatus.RUNNING
             message = 'Test case is still running'
         duration = None
         if self._case_start_time is not None:

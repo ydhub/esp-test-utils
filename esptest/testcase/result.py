@@ -152,6 +152,7 @@ class TestCaseStatus:
     FAILED = 'failed'
     ERROR = 'error'
     SKIPPED = 'skipped'
+    RUNNING = 'running'
 
 
 @dataclass

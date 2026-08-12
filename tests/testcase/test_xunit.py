@@ -495,18 +495,113 @@ def test_xunit_logger_carries_stdout_before_case_start(tmp_path: Path) -> None:
     assert 'boot log' in stdout
 
 
-def test_xunit_logger_persists_running_case_as_error(tmp_path: Path) -> None:
+def test_xunit_logger_persists_running_case_as_running(tmp_path: Path) -> None:
     logger = XunitLogger(tmp_path)
 
     logger.begin_case('test_crash_safe', classname='wifi.station')
 
-    parsed = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME)
-    suite = parsed.test_suites[0]
-    assert suite.errors == 1
-    assert suite.test_cases[0].name == 'test_crash_safe'
-    assert suite.test_cases[0].status == TestCaseStatus.ERROR
-    assert suite.test_cases[0].message == 'Test case is still running'
-    assert suite.test_cases[0].properties['running'] == 'true'
+    # Mid-run readers keep RUNNING; final-report default maps it to ERROR.
+    live = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME, keep_running=True)
+    assert live.test_suites[0].errors == 0
+    assert live.test_suites[0].test_cases[0].status == TestCaseStatus.RUNNING
+    assert live.test_suites[0].test_cases[0].message == 'Test case is still running'
+    assert live.test_suites[0].test_cases[0].properties['running'] == 'true'
+
+    final = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME)
+    assert final.test_suites[0].errors == 1
+    assert final.test_suites[0].test_cases[0].status == TestCaseStatus.ERROR
+    assert final.test_suites[0].test_cases[0].message == 'Test case is still running'
+    assert final.test_suites[0].test_cases[0].properties['running'] == 'true'
+
+
+def test_parse_xunit_xml_maps_running_property_with_keep_running_flag() -> None:
+    xml_text = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="2" failures="0" errors="0" skipped="0" time="1">
+  <testsuite name="wifi" tests="2" failures="0" errors="0" skipped="0" time="1">
+    <testcase name="still_going" time="1">
+      <properties>
+        <property name="running" value="true" />
+      </properties>
+    </testcase>
+    <testcase name="failed_while_running" time="0">
+      <properties>
+        <property name="running" value="true" />
+      </properties>
+      <failure message="assert failed">assert failed</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+    keep = parse_xunit_xml(xml_text, keep_running=True).test_suites[0].test_cases
+    assert keep[0].status == TestCaseStatus.RUNNING
+    assert keep[0].properties.get('running') == 'true'
+    assert keep[1].status == TestCaseStatus.FAILED
+
+    as_error = parse_xunit_xml(xml_text).test_suites[0].test_cases
+    assert as_error[0].status == TestCaseStatus.ERROR
+    assert as_error[0].message == 'Test case is still running'
+    assert as_error[0].properties.get('running') == 'true'
+    assert as_error[1].status == TestCaseStatus.FAILED
+
+
+def test_parse_xunit_xml_maps_legacy_running_error_with_keep_running_flag() -> None:
+    """Old flushes wrote <error>Test case is still running</error> + running=true."""
+    xml_text = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="1" failures="0" errors="1" skipped="0" time="1">
+  <testsuite name="wifi" tests="1" failures="0" errors="1" skipped="0" time="1">
+    <testcase name="legacy_running" time="1">
+      <properties>
+        <property name="running" value="true" />
+      </properties>
+      <error message="Test case is still running">Test case is still running</error>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+    keep = parse_xunit_xml(xml_text, keep_running=True).test_suites[0].test_cases[0]
+    assert keep.status == TestCaseStatus.RUNNING
+    assert keep.message == 'Test case is still running'
+
+    # Default keeps the terminal ERROR for final-report consumers.
+    final = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert final.status == TestCaseStatus.ERROR
+    assert final.message == 'Test case is still running'
+    assert final.properties.get('running') == 'true'
+
+
+def test_generate_and_parse_xunit_xml_round_trips_running_status() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='in_progress',
+                        status=TestCaseStatus.RUNNING,
+                        message='Test case is still running',
+                        properties={'running': 'true'},
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert 'name="running"' in xml_text
+    assert '<failure' not in xml_text
+    assert '<error' not in xml_text
+
+    keep = parse_xunit_xml(xml_text, keep_running=True)
+    case = keep.test_suites[0].test_cases[0]
+    assert case.status == TestCaseStatus.RUNNING
+    assert case.properties.get('running') == 'true'
+    assert keep.test_suites[0].errors == 0
+
+    final = parse_xunit_xml(xml_text)
+    assert final.test_suites[0].test_cases[0].status == TestCaseStatus.ERROR
+    assert final.test_suites[0].errors == 1
 
 
 def test_xunit_logger_throttles_stdout_flushes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

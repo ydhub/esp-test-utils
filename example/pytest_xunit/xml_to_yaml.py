@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = os.path.join(HERE, 'pytest_xunit_output')
 DEFAULT_XML = os.path.join(OUTPUT_DIR, XUNIT_RESULT_FILE_NAME)
 
-_KNOWN_STATUS = {'passed', 'failed', 'error', 'skipped'}
+_KNOWN_STATUS = {'passed', 'failed', 'error', 'skipped', 'running'}
 
 
 def _normalize_status(status: t.Any) -> str:
