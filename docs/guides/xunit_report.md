@@ -41,8 +41,10 @@ report_path = logger.flush(force=True)
 
 `set_case_properties()` merges values into the currently running case; a later
 value overwrites an existing key. Calling it without a running case raises
-`RuntimeError`. It does not flush immediately—the properties are written by a
-later periodic or explicit flush, or when `end_case()` finishes the case.
+`RuntimeError`. Setting property `running` raises `ValueError` — that key is
+reserved for mid-run snapshots. It does not flush immediately—the properties
+are written by a later periodic or explicit flush, or when `end_case()`
+finishes the case.
 
 `end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
 marks it SKIPPED.
@@ -111,7 +113,7 @@ assert logger.current_test_case.name == 'test_assoc'
 | `add_error(message)` | Mark the running case ERROR. |
 | `add_skipped(message='')` | Mark the running case SKIPPED. |
 | `clear_failures()` | Reset the running case back to PASSED and clear its message. |
-| `set_case_properties(properties)` | Merge string properties into the running case. |
+| `set_case_properties(properties)` | Merge string properties into the running case. Rejects reserved key `running`. |
 | `add_case_detail(detail)` | Attach a `ResultDetail`, save its JSON next to the report, and register the relative path. |
 
 `add_failure` / `add_error` / `add_skipped` / `clear_failures` / `set_case_properties` /

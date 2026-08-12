@@ -176,7 +176,9 @@ def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
     # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
     if test_case.status == TestCaseStatus.RUNNING:
-        properties.setdefault('running', 'true')
+        # Always force the marker so a conflicting caller property cannot make a
+        # RUNNING case round-trip as PASSED (no status child + running=false).
+        properties['running'] = 'true'
     return properties
 
 
@@ -559,9 +561,15 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
 
     @_synchronized
     def set_case_properties(self, properties: t.Dict[str, str]) -> None:
-        """Merge properties into the running test case without flushing."""
+        """Merge properties into the running test case without flushing.
+
+        The mid-run marker key ``running`` is reserved for in-progress
+        snapshots and cannot be set through this API.
+        """
         if self.running_case is None:
             raise RuntimeError('No running test case')
+        if 'running' in properties:
+            raise ValueError("property 'running' is reserved for mid-run snapshots")
         self.running_case.properties.update(properties)
 
     @_synchronized
