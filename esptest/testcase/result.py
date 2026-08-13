@@ -156,6 +156,17 @@ class TestCaseStatus:
 
 
 @dataclass
+class XmlStatusDetail:
+    """One ``<failure>`` / ``<error>`` / ``<skipped>`` child as stored in the XML."""
+
+    __test__ = False
+
+    type: t.Optional[str] = None
+    message: t.Optional[str] = None
+    text: t.Optional[str] = None
+
+
+@dataclass
 class TestCaseResult:
     __test__ = False
 
@@ -172,6 +183,14 @@ class TestCaseResult:
     result_detail_files: t.List[str] = field(default_factory=list)
     result_details: t.List[ResultDetail] = field(default_factory=list)
     started_at: t.Optional[str] = None
+    # Raw XML status children retained on parse (may contain multiple entries).
+    xml_failure: t.List[XmlStatusDetail] = field(default_factory=list)
+    xml_error: t.List[XmlStatusDetail] = field(default_factory=list)
+
+    @property
+    def known_issue(self) -> t.Optional[str]:
+        value = self.properties.get('known_issue')
+        return value or None
 
     def add_result_detail(self, detail: ResultDetail, file_name: str = '') -> ResultDetail:
         """Attach a :class:`ResultDetail` object directly to this case.

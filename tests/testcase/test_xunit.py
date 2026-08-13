@@ -320,16 +320,100 @@ def test_set_case_properties_rejects_reserved_running_key(tmp_path: Path) -> Non
     logger = XunitLogger(tmp_path)
     logger.begin_case('test_connect')
 
-    with pytest.raises(ValueError, match=r"property 'running' is reserved"):
+    with pytest.raises(ValueError, match='reserved case propert'):
         logger.set_case_properties({'running': 'true'})
-    with pytest.raises(ValueError, match=r"property 'running' is reserved"):
+    with pytest.raises(ValueError, match='reserved case propert'):
         logger.set_case_properties({'target': 'esp32', 'running': 'false'})
 
-    logger.set_case_properties({'target': 'esp32'})
+    # failure_type / known_issue are not reserved yet (compat with older callers).
+    logger.set_case_properties({'target': 'esp32', 'failure_type': 'timeout', 'known_issue': '1'})
     logger.end_case()
     case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
-    assert case.properties == {'target': 'esp32'}
+    assert case.properties['target'] == 'esp32'
+    assert case.properties['failure_type'] == 'timeout'
+    assert case.known_issue == '1'
     assert 'running' not in case.properties
+
+
+def test_set_known_issue_and_failure_type_apis(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_known')
+
+    logger.set_known_issue()
+    assert logger.running_case is not None
+    assert logger.running_case.known_issue == '1'
+    assert logger.running_case.properties['known_issue'] == '1'
+
+    logger.set_known_issue('JIRA-123')
+    assert logger.running_case.known_issue == 'JIRA-123'
+
+    logger.set_failure_type('timeout')
+    assert logger.running_case.failure_type == 'timeout'
+    assert logger.running_case.properties['failure_type'] == 'timeout'
+
+    logger.set_failure_type('')
+    assert logger.running_case.failure_type == 'unknown'
+    assert logger.running_case.properties['failure_type'] == 'unknown'
+
+    logger.add_failure('boom', fail_type='assert')
+    logger.end_case()
+    case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
+    assert case.known_issue == 'JIRA-123'
+    # add_failure does not overwrite the property; property wins over XML type on parse.
+    assert case.failure_type == 'unknown'
+    assert case.properties['failure_type'] == 'unknown'
+    assert case.xml_failure and case.xml_failure[0].type == 'assert'
+
+
+def test_parse_xunit_xml_property_failure_type_wins_and_keeps_xml_details() -> None:
+    xml_text = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="1" failures="1" errors="0" skipped="0" time="1">
+  <testsuite name="wifi" tests="1" failures="1" errors="0" skipped="0" time="1">
+    <testcase name="multi" time="1">
+      <properties>
+        <property name="failure_type" value="from_property" />
+        <property name="known_issue" value="bug-9" />
+      </properties>
+      <failure type="from_xml" message="first">body-1</failure>
+      <failure type="from_xml_2" message="second">body-2</failure>
+      <error type="err_type" message="err_msg">err_body</error>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+    case = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert case.status == TestCaseStatus.FAILED
+    assert case.failure_type == 'from_property'
+    assert case.message == 'first'
+    assert case.known_issue == 'bug-9'
+    assert len(case.xml_failure) == 2
+    assert case.xml_failure[0].type == 'from_xml'
+    assert case.xml_failure[0].message == 'first'
+    assert case.xml_failure[0].text == 'body-1'
+    assert case.xml_failure[1].type == 'from_xml_2'
+    assert len(case.xml_error) == 1
+    assert case.xml_error[0].type == 'err_type'
+    assert case.xml_error[0].message == 'err_msg'
+    assert case.xml_error[0].text == 'err_body'
+
+
+def test_reserved_case_property_keys_can_be_overridden_by_subclass(tmp_path: Path) -> None:
+    class StrictLogger(XunitLogger):
+        # Future default: also reserve failure_type / known_issue.
+        RESERVED_CASE_PROPERTY_KEYS = frozenset({'running', 'failure_type', 'known_issue'})
+
+    logger = StrictLogger(tmp_path)
+    logger.begin_case('test_override')
+    with pytest.raises(ValueError, match='failure_type'):
+        logger.set_case_properties({'failure_type': 'timeout'})
+    with pytest.raises(ValueError, match='known_issue'):
+        logger.set_case_properties({'known_issue': '1'})
+    logger.set_failure_type('timeout')
+    logger.set_known_issue('bug-1')
+    assert logger.running_case is not None
+    assert logger.running_case.properties['failure_type'] == 'timeout'
+    assert logger.running_case.known_issue == 'bug-1'
 
 
 def test_add_case_detail_auto_generates_incrementing_file_names(tmp_path: Path) -> None:
