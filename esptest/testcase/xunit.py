@@ -12,7 +12,14 @@ from pathlib import Path
 import esptest.common.compat_typing as t
 from esptest.common.timestamp import timestamp_iso
 
-from .result import ResultDetail, TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
+from .result import (
+    ResultDetail,
+    TestCaseResult,
+    TestCaseStatus,
+    TestSuiteResult,
+    TestSuitesResult,
+    XmlStatusDetail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +182,10 @@ def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
     if test_case.result_detail_files:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
     # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
+    if test_case.status == TestCaseStatus.RUNNING:
+        # Always force the marker so a conflicting caller property cannot make a
+        # RUNNING case round-trip as PASSED (no status child + running=false).
+        properties['running'] = 'true'
     return properties
 
 
@@ -300,17 +311,52 @@ def _pop_json_property(properties: t.Dict[str, str], name: str) -> t.Optional[t.
     return json.loads(value)
 
 
-def _parse_case_status(testcase_elem: ET.Element) -> t.Tuple[str, t.Optional[str], t.Optional[str]]:
-    failure = testcase_elem.find('failure')
-    if failure is not None:
-        return TestCaseStatus.FAILED, failure.get('message') or failure.text, failure.get('type')
-    error = testcase_elem.find('error')
-    if error is not None:
-        return TestCaseStatus.ERROR, error.get('message') or error.text, error.get('type')
+def _parse_xml_status_details(testcase_elem: ET.Element, tag: str) -> t.List[XmlStatusDetail]:
+    details: t.List[XmlStatusDetail] = []
+    for elem in testcase_elem.findall(tag):
+        details.append(
+            XmlStatusDetail(
+                type=elem.get('type'),
+                message=elem.get('message'),
+                text=elem.text,
+            )
+        )
+    return details
+
+
+def _parse_case_status(
+    testcase_elem: ET.Element,
+) -> t.Tuple[str, t.Optional[str], t.Optional[str], t.List[XmlStatusDetail], t.List[XmlStatusDetail]]:
+    xml_failure = _parse_xml_status_details(testcase_elem, 'failure')
+    xml_error = _parse_xml_status_details(testcase_elem, 'error')
+    if xml_failure:
+        first = xml_failure[0]
+        return (
+            TestCaseStatus.FAILED,
+            first.message or first.text,
+            first.type,
+            xml_failure,
+            xml_error,
+        )
+    if xml_error:
+        first = xml_error[0]
+        return (
+            TestCaseStatus.ERROR,
+            first.message or first.text,
+            first.type,
+            xml_failure,
+            xml_error,
+        )
     skipped = testcase_elem.find('skipped')
     if skipped is not None:
-        return TestCaseStatus.SKIPPED, skipped.get('message') or skipped.text, None
-    return TestCaseStatus.PASSED, None, None
+        return (
+            TestCaseStatus.SKIPPED,
+            skipped.get('message') or skipped.text,
+            None,
+            xml_failure,
+            xml_error,
+        )
+    return TestCaseStatus.PASSED, None, None, xml_failure, xml_error
 
 
 def _find_text(parent: ET.Element, tag: str) -> t.Optional[str]:
@@ -340,14 +386,33 @@ def _load_result_details(result_detail_files: t.List[str], base_dir: t.Optional[
     return details
 
 
-def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestCaseResult:
+def _parse_test_case(
+    testcase_elem: ET.Element,
+    base_dir: t.Optional[Path] = None,
+    keep_running: bool = False,
+) -> TestCaseResult:
     properties = _parse_properties(testcase_elem)
     result_detail_files = _pop_json_property(properties, 'result_detail_files') or []
     logs = _pop_json_property(properties, 'logs')
     # Prefer <testcase timestamp="...">; fall back to legacy property started_at.
     prop_started_at = properties.pop('started_at', None)
     started_at = testcase_elem.get('timestamp') or prop_started_at
-    status, message, failure_type = _parse_case_status(testcase_elem)
+    status, message, xml_failure_type, xml_failure, xml_error = _parse_case_status(testcase_elem)
+    # Property failure_type wins over the XML <failure|error type="..."> attribute.
+    prop_failure_type = properties.get('failure_type')
+    failure_type = prop_failure_type or xml_failure_type
+    # Mid-run flushes mark property running=true. Map to RUNNING; by default
+    # (keep_running=False) coerce to ERROR for final/CI readers. Real
+    # failure/error/skipped children still win over a bare running marker.
+    is_running_prop = str(properties.get('running', '')).lower() in ('1', 'true', 'yes')
+    if is_running_prop and status == TestCaseStatus.PASSED:
+        status = TestCaseStatus.RUNNING
+        message = message or 'Test case is still running'
+    elif is_running_prop and status == TestCaseStatus.ERROR and (message or '') == 'Test case is still running':
+        status = TestCaseStatus.RUNNING
+    if not keep_running and status == TestCaseStatus.RUNNING:
+        status = TestCaseStatus.ERROR
+        message = message or 'Test case is still running'
     return TestCaseResult(
         name=testcase_elem.get('name', ''),
         classname=testcase_elem.get('classname', ''),
@@ -362,13 +427,21 @@ def _parse_test_case(testcase_elem: ET.Element, base_dir: t.Optional[Path] = Non
         result_detail_files=result_detail_files,
         result_details=_load_result_details(result_detail_files, base_dir),
         started_at=started_at,
+        xml_failure=xml_failure,
+        xml_error=xml_error,
     )
 
 
-def _parse_test_suite(testsuite_elem: ET.Element, base_dir: t.Optional[Path] = None) -> TestSuiteResult:
+def _parse_test_suite(
+    testsuite_elem: ET.Element,
+    base_dir: t.Optional[Path] = None,
+    keep_running: bool = False,
+) -> TestSuiteResult:
     return TestSuiteResult(
         name=testsuite_elem.get('name', ''),
-        test_cases=[_parse_test_case(elem, base_dir) for elem in testsuite_elem.findall('testcase')],
+        test_cases=[
+            _parse_test_case(elem, base_dir, keep_running=keep_running) for elem in testsuite_elem.findall('testcase')
+        ],
         properties=_parse_properties(testsuite_elem),
         timestamp=testsuite_elem.get('timestamp'),
         package=testsuite_elem.get('package'),
@@ -403,17 +476,27 @@ def parse_xunit_xml(
     xml_or_path: t.Union[str, Path],
     base_dir: t.Optional[t.Union[str, Path]] = None,
     load_result_details: bool = True,
+    keep_running: bool = False,
 ) -> TestSuitesResult:
+    """Parse an xUnit XML report into result dataclasses.
+
+    ``keep_running`` controls mid-run snapshots (property ``running=true``).
+    Default ``False`` maps incomplete cases to ``ERROR`` for final / CI
+    consumers. Live monitors that need ``TestCaseStatus.RUNNING`` should pass
+    ``True``.
+    """
     root = _load_root(xml_or_path)
     resolved_base = _resolve_base_dir(xml_or_path, base_dir) if load_result_details else None
     if root.tag == 'testsuite':
-        return TestSuitesResult(test_suites=[_parse_test_suite(root, resolved_base)])
+        return TestSuitesResult(test_suites=[_parse_test_suite(root, resolved_base, keep_running=keep_running)])
     if root.tag != 'testsuites':
         raise ValueError(f'Unsupported xUnit root element: {root.tag}')
 
     return TestSuitesResult(
         name=root.get('name', 'testsuites'),
-        test_suites=[_parse_test_suite(elem, resolved_base) for elem in root.findall('testsuite')],
+        test_suites=[
+            _parse_test_suite(elem, resolved_base, keep_running=keep_running) for elem in root.findall('testsuite')
+        ],
         properties=_parse_properties(root),
     )
 
@@ -423,6 +506,11 @@ _KNOWN_CONFIG_KEYS = frozenset({'suite_name', 'package', 'file', 'hostname'})
 
 class XunitLogger:  # pylint: disable=too-many-public-methods
     _default_config: t.Dict[str, str] = {}
+    # Only ``running`` is reserved for now. ``failure_type`` / ``known_issue`` are
+    # intentionally not reserved yet so older callers that set them via
+    # ``set_case_properties`` keep working; prefer ``set_failure_type`` /
+    # ``set_known_issue`` for new code. Subclasses may replace / extend this set.
+    RESERVED_CASE_PROPERTY_KEYS = frozenset({'running'})
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -525,10 +613,43 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
 
     @_synchronized
     def set_case_properties(self, properties: t.Dict[str, str]) -> None:
-        """Merge properties into the running test case without flushing."""
+        """Merge properties into the running test case without flushing.
+
+        Keys in :attr:`RESERVED_CASE_PROPERTY_KEYS` (``running`` by default) are
+        reserved and must not be set here. Subclasses may override the reserved
+        set. ``failure_type`` / ``known_issue`` are not reserved yet for
+        backward compatibility; prefer :meth:`set_failure_type` /
+        :meth:`set_known_issue`.
+        """
         if self.running_case is None:
             raise RuntimeError('No running test case')
+        reserved = self.RESERVED_CASE_PROPERTY_KEYS
+        blocked = sorted(key for key in properties if key in reserved)
+        if blocked:
+            raise ValueError(f'reserved case properties not allowed via set_case_properties: {", ".join(blocked)}')
         self.running_case.properties.update(properties)
+
+    @_synchronized
+    def set_known_issue(self, reason: str = '') -> None:
+        """Mark the running case as a known issue (property ``known_issue``).
+
+        Stores ``reason`` when non-empty, otherwise ``'1'``.
+        """
+        if self.running_case is None:
+            raise RuntimeError('No running test case')
+        self.running_case.properties['known_issue'] = reason or '1'
+
+    @_synchronized
+    def set_failure_type(self, fail_type: str = '') -> None:
+        """Set property ``failure_type`` and sync ``TestCaseResult.failure_type``.
+
+        Empty ``fail_type`` becomes :data:`DEFAULT_FAIL_TYPE` (``unknown``).
+        """
+        if self.running_case is None:
+            raise RuntimeError('No running test case')
+        resolved = fail_type or DEFAULT_FAIL_TYPE
+        self.running_case.properties['failure_type'] = resolved
+        self.running_case.failure_type = resolved
 
     @_synchronized
     def add_case_detail(self, detail: ResultDetail) -> ResultDetail:
@@ -656,6 +777,8 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
             raise RuntimeError('No running test case')
         self.running_case.status = TestCaseStatus.PASSED
         self.running_case.message = None
+        self.running_case.failure_type = None
+        self.running_case.properties.pop('failure_type', None)
         self.flush(force=True)
 
     @_synchronized
@@ -724,7 +847,7 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
         status = self.running_case.status
         message = self.running_case.message
         if status == TestCaseStatus.PASSED:
-            status = TestCaseStatus.ERROR
+            status = TestCaseStatus.RUNNING
             message = 'Test case is still running'
         duration = None
         if self._case_start_time is not None:

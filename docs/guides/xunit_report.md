@@ -41,8 +41,12 @@ report_path = logger.flush(force=True)
 
 `set_case_properties()` merges values into the currently running case; a later
 value overwrites an existing key. Calling it without a running case raises
-`RuntimeError`. It does not flush immediately—the properties are written by a
-later periodic or explicit flush, or when `end_case()` finishes the case.
+`RuntimeError`. Key `running` (see `XunitLogger.RESERVED_CASE_PROPERTY_KEYS`)
+raises `ValueError`. `failure_type` / `known_issue` are not reserved yet for
+backward compatibility — prefer `set_failure_type` / `set_known_issue`.
+Subclasses may override the reserved set. It does not flush immediately—the
+properties are written by a later periodic or explicit flush, or when
+`end_case()` finishes the case.
 
 `end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
 marks it SKIPPED.
@@ -52,6 +56,13 @@ becomes the `<testcase timestamp="...">` attribute (not a case property).
 `parse_xunit_xml` maps that attribute back to `started_at`, and still accepts
 legacy reports that stored it as property `started_at` (attribute wins if both
 are present).
+
+While a case is open, periodic/`force` flushes snapshot it with
+`TestCaseStatus.RUNNING` and property `running=true` (no `<failure>` /
+`<error>` child). `parse_xunit_xml` defaults to `keep_running=False`, so
+final/CI readers see those cases as `ERROR`. Pass `keep_running=True`
+for live mid-run monitors that need `RUNNING`. Legacy reports that used
+`<error message="Test case is still running">` follow the same flag.
 
 ## Public API reference (`XunitLogger`)
 
@@ -104,7 +115,9 @@ assert logger.current_test_case.name == 'test_assoc'
 | `add_error(message)` | Mark the running case ERROR. |
 | `add_skipped(message='')` | Mark the running case SKIPPED. |
 | `clear_failures()` | Reset the running case back to PASSED and clear its message. |
-| `set_case_properties(properties)` | Merge string properties into the running case. |
+| `set_case_properties(properties)` | Merge string properties into the running case. Rejects reserved key `running` (subclass-overridable). |
+| `set_known_issue(reason='')` | Set property `known_issue` to `reason` or `'1'`. Readable via `TestCaseResult.known_issue`. |
+| `set_failure_type(fail_type='')` | Set property `failure_type` and sync the case field (empty → `unknown`). |
 | `add_case_detail(detail)` | Attach a `ResultDetail`, save its JSON next to the report, and register the relative path. |
 
 `add_failure` / `add_error` / `add_skipped` / `clear_failures` / `set_case_properties` /
@@ -245,7 +258,12 @@ save_xunit_xml(suites, './xunit_report/iperf_result.xml')  # write to disk
 ## Parsing an existing report
 
 `parse_xunit_xml` reads an XML report back into the result dataclasses,
-auto-loading any referenced `ResultDetail` JSON files:
+auto-loading any referenced `ResultDetail` JSON files. Incomplete mid-run
+cases (property `running=true`) become `ERROR` by default; pass
+`keep_running=True` to keep `TestCaseStatus.RUNNING`. Property `failure_type`
+wins over `<failure|error type="...">`. All `<failure>` / `<error>` children
+are kept on `case.xml_failure` / `case.xml_error`. Property `known_issue` is
+exposed as `case.known_issue`.
 
 ```python
 from esptest.testcase.xunit import parse_xunit_xml
@@ -255,6 +273,9 @@ print(f'tests={suites.tests}, failures={suites.failures}, errors={suites.errors}
 for suite in suites.test_suites:
     for case in suite.test_cases:
         print(f'[{case.status}] {suite.name}::{case.name}')
+
+# live monitor reading a flush while a case is still open:
+live = parse_xunit_xml('./xunit_report/XUNIT_RESULT.xml', keep_running=True)
 ```
 
 See `example/xunit_report.py` in the repository for a complete, runnable

@@ -4,6 +4,7 @@ from .result import (
     TestCaseStatus,
     TestSuiteResult,
     TestSuitesResult,
+    XmlStatusDetail,
 )
 from .unittest_case import EspTestCase, get_case_result_from_outcome
 from .xunit import (
@@ -19,6 +20,7 @@ __all__ = [
     'TestCaseStatus',
     'TestSuiteResult',
     'TestSuitesResult',
+    'XmlStatusDetail',
     'EspTestCase',
     'XunitLogger',
     'generate_xunit_xml',
