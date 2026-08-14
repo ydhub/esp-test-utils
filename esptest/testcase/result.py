@@ -166,7 +166,7 @@ class XmlStatusDetail:
     text: t.Optional[str] = None
 
 
-@dataclass
+@dataclass(init=False)
 class TestCaseResult:
     __test__ = False
 
@@ -174,8 +174,6 @@ class TestCaseResult:
     classname: str = ''
     status: str = TestCaseStatus.PASSED
     duration: t.Optional[float] = None
-    message: t.Optional[str] = None
-    failure_type: t.Optional[str] = None
     stdout: t.Optional[str] = None
     stderr: t.Optional[str] = None
     properties: t.Dict[str, str] = field(default_factory=dict)
@@ -189,6 +187,94 @@ class TestCaseResult:
     # Raw XML status children retained on parse (may contain multiple entries).
     xml_failure: t.List[XmlStatusDetail] = field(default_factory=list)
     xml_error: t.List[XmlStatusDetail] = field(default_factory=list)
+    # Prefer constructing via message= / failure_type=.
+    _message: t.Optional[str] = field(default=None, repr=False)
+    _failure_type: t.Optional[str] = field(default=None, repr=False)
+
+    def __init__(  # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
+        self,
+        name: str,
+        classname: str = '',
+        status: str = TestCaseStatus.PASSED,
+        duration: t.Optional[float] = None,
+        message: t.Optional[str] = None,
+        failure_type: t.Optional[str] = None,
+        stdout: t.Optional[str] = None,
+        stderr: t.Optional[str] = None,
+        properties: t.Optional[t.Dict[str, str]] = None,
+        logs: t.Optional[t.List[t.Dict[str, Any]]] = None,
+        result_detail_files: t.Optional[t.List[str]] = None,
+        result_details: t.Optional[t.List[ResultDetail]] = None,
+        started_at: t.Optional[str] = None,
+        file: t.Optional[str] = None,
+        line: t.Optional[str] = None,
+        xml_failure: t.Optional[t.List[XmlStatusDetail]] = None,
+        xml_error: t.Optional[t.List[XmlStatusDetail]] = None,
+        _message: t.Optional[str] = None,
+        _failure_type: t.Optional[str] = None,
+    ) -> None:
+        self.name = name
+        self.classname = classname
+        self.status = status
+        self.duration = duration
+        self.stdout = stdout
+        self.stderr = stderr
+        self.properties = {} if properties is None else properties
+        self.logs = logs
+        self.result_detail_files = [] if result_detail_files is None else result_detail_files
+        self.result_details = [] if result_details is None else result_details
+        self.started_at = started_at
+        self.file = file
+        self.line = line
+        self.xml_failure = [] if xml_failure is None else xml_failure
+        self.xml_error = [] if xml_error is None else xml_error
+        # message= / failure_type= map onto private storage (compat with main).
+        self._message = message if message is not None else _message
+        self._failure_type = failure_type if failure_type is not None else _failure_type
+
+    @property
+    def failure_message(self) -> t.Optional[str]:
+        """Case failure/error/skip text: private value, else first xml error/failure."""
+        if self._message is not None:
+            return self._message
+        if self.xml_error:
+            first = self.xml_error[0]
+            return first.message or first.text
+        if self.xml_failure:
+            first = self.xml_failure[0]
+            return first.message or first.text
+        return None
+
+    @failure_message.setter
+    def failure_message(self, value: t.Optional[str]) -> None:
+        self._message = value
+
+    @property
+    def failure_type(self) -> t.Optional[str]:
+        """Canonical type: private, else property, else first xml error/failure type."""
+        if self._failure_type:
+            return self._failure_type
+        prop = self.properties.get('failure_type')
+        if prop:
+            return prop
+        if self.xml_error and self.xml_error[0].type:
+            return self.xml_error[0].type
+        if self.xml_failure and self.xml_failure[0].type:
+            return self.xml_failure[0].type
+        return None
+
+    @failure_type.setter
+    def failure_type(self, value: t.Optional[str]) -> None:
+        self._failure_type = value
+
+    @property
+    def message(self) -> t.Optional[str]:
+        """Deprecated alias for :attr:`failure_message` (main-branch compatible)."""
+        return self.failure_message
+
+    @message.setter
+    def message(self, value: t.Optional[str]) -> None:
+        self.failure_message = value
 
     @property
     def known_issue(self) -> t.Optional[str]:

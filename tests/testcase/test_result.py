@@ -7,6 +7,7 @@ from esptest.testcase.result import (
     TestCaseStatus,
     TestSuiteResult,
     TestSuitesResult,
+    XmlStatusDetail,
 )
 
 
@@ -70,6 +71,39 @@ def test_result_detail_save_text_and_markdown(tmp_path: Path) -> None:
     assert '# analysis' in markdown
     assert '## Params' in markdown
     assert '"success_rate": 0.99' in markdown
+
+
+def test_test_case_result_failure_message_and_type_properties() -> None:
+    constructed = TestCaseResult(name='a', message='boom', failure_type='assert')
+    assert constructed.failure_message == 'boom'
+    assert constructed.message == 'boom'  # deprecated alias
+    assert constructed.failure_type == 'assert'
+    assert constructed._message == 'boom'
+    assert constructed._failure_type == 'assert'
+
+    from_xml = TestCaseResult(
+        name='b',
+        xml_failure=[XmlStatusDetail(type='A', message='first', text='body')],
+        xml_error=[XmlStatusDetail(type='E', message='err', text='err_body')],
+    )
+    assert from_xml._message is None and from_xml._failure_type is None
+    assert from_xml.failure_message == 'err'
+    assert from_xml.failure_type == 'E'
+
+    prop_wins = TestCaseResult(
+        name='c',
+        properties={'failure_type': 'from_property'},
+        xml_failure=[XmlStatusDetail(type='from_xml', message='m', text='m')],
+    )
+    assert prop_wins.failure_type == 'from_property'
+
+    private_wins = TestCaseResult(
+        name='d',
+        failure_type='private',
+        properties={'failure_type': 'from_property'},
+        xml_failure=[XmlStatusDetail(type='from_xml', message='m', text='m')],
+    )
+    assert private_wins.failure_type == 'private'
 
 
 def test_test_case_result_uses_result_detail_files() -> None:

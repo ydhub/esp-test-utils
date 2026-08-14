@@ -260,14 +260,17 @@ save_xunit_xml(suites, './xunit_report/iperf_result.xml')  # write to disk
 `parse_xunit_xml` reads an XML report back into the result dataclasses,
 auto-loading any referenced `ResultDetail` JSON files. Incomplete mid-run
 cases (property `running=true`) become `ERROR` by default; pass
-`keep_running=True` to keep `TestCaseStatus.RUNNING`. Property `failure_type`
-wins over `<failure|error type="...">`. All `<failure>` / `<error>` children
-are kept on `case.xml_failure` / `case.xml_error`; when both are present,
-status prefers **error** over failure. Dump (`generate_xunit_xml`) re-emits
-those lists when non-empty, otherwise falls back to a single status child from
-`status` / `message` / `failure_type`. `testcase` attributes `file` / `line`
-round-trip on `TestCaseResult`. Property `known_issue` is exposed as
-`case.known_issue`.
+`keep_running=True` to keep `TestCaseStatus.RUNNING`. Reading
+`case.failure_type` uses private field, then property `failure_type`, then the
+first xml error/failure type. Parse does not set private `_message` /
+`_failure_type` for failure/error cases — use `failure_message` /
+`failure_type` (`.message` remains a deprecated alias). All `<failure>` /
+`<error>` children are kept on `case.xml_failure` / `case.xml_error`; when both
+are present, status prefers **error** over failure. Dump (`generate_xunit_xml`)
+re-emits those lists when non-empty, otherwise falls back to a single status
+child from `status` / `failure_message` / `failure_type`. `testcase` attributes
+`file` / `line` round-trip on `TestCaseResult`. Property `known_issue` is
+exposed as `case.known_issue`.
 
 ```python
 from esptest.testcase.xunit import parse_xunit_xml

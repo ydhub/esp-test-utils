@@ -175,12 +175,40 @@ def _add_properties(parent: ET.Element, properties: t.Dict[str, str]) -> None:
         ET.SubElement(properties_elem, 'property', {'name': name, 'value': _xml_safe_text(str(properties[name]))})
 
 
+def _should_emit_failure_type_property(test_case: TestCaseResult) -> bool:
+    """Whether dump should persist ``failure_type`` as a case property.
+
+    Skip when a single ``<failure>`` (and no ``<error>``) already carries the
+    same ``type`` as ``case.failure_type`` — writing the property would make a
+    second dump→parse diverge from a simple Logger-built failure. Emit when
+    there are multiple status children or the canonical type differs from the
+    sole failure child's type.
+    """
+    if test_case.failure_type is None:
+        return False
+    if not (test_case.xml_failure or test_case.xml_error):
+        return False
+    if (
+        len(test_case.xml_failure) == 1
+        and not test_case.xml_error
+        and test_case.xml_failure[0].type == test_case.failure_type
+    ):
+        return False
+    return True
+
+
 def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
     properties = dict(test_case.properties)
     if test_case.logs is not None:
         properties['logs'] = _json_dumps(test_case.logs)
     if test_case.result_detail_files:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
+    # Keep canonical failure_type as a property when xml_* children alone cannot
+    # represent it (multi children or type mismatch).
+    if _should_emit_failure_type_property(test_case):
+        emitted_type = test_case.failure_type
+        if emitted_type is not None:
+            properties.setdefault('failure_type', emitted_type)
     # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
     if test_case.status == TestCaseStatus.RUNNING:
         # Always force the marker so a conflicting caller property cannot make a
@@ -215,22 +243,22 @@ def _add_status_element(testcase_elem: ET.Element, test_case: TestCaseResult) ->
         failure = ET.SubElement(testcase_elem, 'failure')
         if test_case.failure_type is not None:
             failure.set('type', _xml_safe_text(test_case.failure_type))
-        if test_case.message is not None:
-            message = _xml_safe_text(test_case.message)
+        if test_case.failure_message is not None:
+            message = _xml_safe_text(test_case.failure_message)
             failure.set('message', message)
             failure.text = message
     elif test_case.status == TestCaseStatus.ERROR:
         error = ET.SubElement(testcase_elem, 'error')
         if test_case.failure_type is not None:
             error.set('type', _xml_safe_text(test_case.failure_type))
-        if test_case.message is not None:
-            message = _xml_safe_text(test_case.message)
+        if test_case.failure_message is not None:
+            message = _xml_safe_text(test_case.failure_message)
             error.set('message', message)
             error.text = message
     elif test_case.status == TestCaseStatus.SKIPPED:
         skipped = ET.SubElement(testcase_elem, 'skipped')
-        if test_case.message is not None:
-            skipped.set('message', _xml_safe_text(test_case.message))
+        if test_case.failure_message is not None:
+            skipped.set('message', _xml_safe_text(test_case.failure_message))
 
 
 def _test_case_to_xml(test_case: TestCaseResult) -> ET.Element:
@@ -424,10 +452,7 @@ def _parse_test_case(
     # Prefer <testcase timestamp="...">; fall back to legacy property started_at.
     prop_started_at = properties.pop('started_at', None)
     started_at = testcase_elem.get('timestamp') or prop_started_at
-    status, message, xml_failure_type, xml_failure, xml_error = _parse_case_status(testcase_elem)
-    # Property failure_type wins over the XML <failure|error type="..."> attribute.
-    prop_failure_type = properties.get('failure_type')
-    failure_type = prop_failure_type or xml_failure_type
+    status, message, _xml_failure_type, xml_failure, xml_error = _parse_case_status(testcase_elem)
     # Mid-run flushes mark property running=true. Map to RUNNING; by default
     # (keep_running=False) coerce to ERROR for final/CI readers. Real
     # failure/error/skipped children still win over a bare running marker.
@@ -440,13 +465,18 @@ def _parse_test_case(
     if not keep_running and status == TestCaseStatus.RUNNING:
         status = TestCaseStatus.ERROR
         message = message or 'Test case is still running'
+    # Do not set _message / _failure_type for failure/error — readers derive from
+    # xml_* and properties['failure_type']. Keep _message only for skipped or
+    # synthetic running text (no status children).
+    init_message = None
+    if status == TestCaseStatus.SKIPPED or (not xml_failure and not xml_error and message):
+        init_message = message
     return TestCaseResult(
         name=testcase_elem.get('name', ''),
         classname=testcase_elem.get('classname', ''),
         status=status,
         duration=_parse_float(testcase_elem.get('time')),
-        message=message,
-        failure_type=failure_type,
+        message=init_message,
         stdout=_find_text(testcase_elem, 'system-out'),
         stderr=_find_text(testcase_elem, 'system-err'),
         properties=properties,
@@ -670,7 +700,7 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
 
     @_synchronized
     def set_failure_type(self, fail_type: str = '') -> None:
-        """Set property ``failure_type`` and sync ``TestCaseResult.failure_type``.
+        """Set property ``failure_type`` and sync ``TestCaseResult._failure_type``.
 
         Empty ``fail_type`` becomes :data:`DEFAULT_FAIL_TYPE` (``unknown``).
         """
@@ -891,13 +921,12 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
             duration = round(time.time() - self._case_start_time, 3)
         properties = dict(self.running_case.properties)
         properties['running'] = 'true'
-        return TestCaseResult(
+        snapshot = TestCaseResult(
             name=self.running_case.name,
             classname=self.running_case.classname,
             status=status,
             duration=duration,
             message=message,
-            failure_type=self.running_case.failure_type,
             stdout=self._rendered(self._stdout),
             stderr=self._rendered(self._stderr),
             properties=properties,
@@ -907,6 +936,9 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
             file=self.running_case.file,
             line=self.running_case.line,
         )
+        # Copy private storage only (do not materialize derived failure_type).
+        snapshot.failure_type = self.running_case._failure_type  # pylint: disable=protected-access
+        return snapshot
 
     @_synchronized
     def get_cur_case_result(self) -> t.Tuple[bool, str]:
