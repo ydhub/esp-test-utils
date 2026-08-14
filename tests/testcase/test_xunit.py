@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from esptest.common.timestamp import parse_timestamp
-from esptest.testcase.result import TestCaseResult, TestCaseStatus, TestSuiteResult, TestSuitesResult
+from esptest.testcase.result import (
+    TestCaseResult,
+    TestCaseStatus,
+    TestSuiteResult,
+    TestSuitesResult,
+    XmlStatusDetail,
+)
 from esptest.testcase.xunit import (
     XUNIT_RESULT_FILE_NAME,
     XunitLogger,
@@ -367,8 +373,8 @@ def test_set_known_issue_and_failure_type_apis(tmp_path: Path) -> None:
 
 def test_parse_xunit_xml_property_failure_type_wins_and_keeps_xml_details() -> None:
     xml_text = """<?xml version="1.0" encoding="utf-8"?>
-<testsuites name="root" tests="1" failures="1" errors="0" skipped="0" time="1">
-  <testsuite name="wifi" tests="1" failures="1" errors="0" skipped="0" time="1">
+<testsuites name="root" tests="1" failures="0" errors="1" skipped="0" time="1">
+  <testsuite name="wifi" tests="1" failures="0" errors="1" skipped="0" time="1">
     <testcase name="multi" time="1">
       <properties>
         <property name="failure_type" value="from_property" />
@@ -383,9 +389,10 @@ def test_parse_xunit_xml_property_failure_type_wins_and_keeps_xml_details() -> N
 """
 
     case = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
-    assert case.status == TestCaseStatus.FAILED
+    # error children win over failure for status / message / xml type.
+    assert case.status == TestCaseStatus.ERROR
     assert case.failure_type == 'from_property'
-    assert case.message == 'first'
+    assert case.message == 'err_msg'
     assert case.known_issue == 'bug-9'
     assert len(case.xml_failure) == 2
     assert case.xml_failure[0].type == 'from_xml'
@@ -998,6 +1005,239 @@ def test_xunit_logger_get_cur_case_result_reflects_error_and_failure(tmp_path: P
     logger.begin_case('test_pass')
     assert logger.get_cur_case_result() == (True, '')
     logger.end_case()
+
+
+def test_generate_xunit_xml_emits_all_xml_failure_and_error_details() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='multi',
+                        status=TestCaseStatus.ERROR,
+                        message='should_not_override_xml',
+                        # When dumping with xml_* present, failure_type is not re-saved:
+                        # parse of external XML derives it from xml_failure/xml_error type
+                        # or property failure_type, so this field must not override those.
+                        failure_type='should_not_override_xml',
+                        xml_failure=[
+                            XmlStatusDetail(type='A', message='first', text='body-1'),
+                            XmlStatusDetail(type='B', message='second', text='body-2'),
+                        ],
+                        xml_error=[XmlStatusDetail(type='E', message='err', text='err_body')],
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert xml_text.count('<failure') == 2
+    assert xml_text.count('<error') == 1
+    assert 'type="A"' in xml_text and 'body-1' in xml_text
+    assert 'type="B"' in xml_text and 'body-2' in xml_text
+    assert 'type="E"' in xml_text and 'err_body' in xml_text
+    assert 'should_not_override_xml' not in xml_text
+
+    round_trip = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert round_trip.status == TestCaseStatus.ERROR
+    assert round_trip.message == 'err'
+    assert len(round_trip.xml_failure) == 2
+    assert round_trip.xml_failure[1].text == 'body-2'
+    assert round_trip.xml_error[0].text == 'err_body'
+
+
+def test_parse_then_dump_preserves_external_xml_status_and_properties() -> None:
+    """External xUnit parse→dump keeps xml_* children and properties stable."""
+    xml_in = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="1" failures="0" errors="1" skipped="0" time="1">
+  <testsuite name="wifi" tests="1" failures="0" errors="1" skipped="0" time="1">
+    <testcase name="multi" classname="wifi.station" time="1" file="t.py" line="9">
+      <properties>
+        <property name="failure_type" value="canonical" />
+        <property name="target" value="esp32" />
+      </properties>
+      <failure type="A" message="first">body-1</failure>
+      <failure type="B" message="second">body-2</failure>
+      <error type="E" message="err">err_body</error>
+      <system-out>out</system-out>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+    first = parse_xunit_xml(xml_in).test_suites[0].test_cases[0]
+    assert first.status == TestCaseStatus.ERROR
+    assert first.failure_type == 'canonical'
+    assert first.message == 'err'
+    assert first.file == 't.py' and first.line == '9'
+    assert first.properties == {'failure_type': 'canonical', 'target': 'esp32'}
+    assert [(d.type, d.message, d.text) for d in first.xml_failure] == [
+        ('A', 'first', 'body-1'),
+        ('B', 'second', 'body-2'),
+    ]
+    assert [(d.type, d.message, d.text) for d in first.xml_error] == [('E', 'err', 'err_body')]
+
+    dumped = generate_xunit_xml(
+        TestSuitesResult(name='root', test_suites=[TestSuiteResult(name='wifi', test_cases=[first])])
+    )
+    # Status children and properties round-trip; field failure_type is not re-saved
+    # beyond the existing property (derived on parse from properties / xml_*).
+    assert dumped.count('<failure') == 2
+    assert dumped.count('<error') == 1
+    assert 'body-1' in dumped and 'body-2' in dumped and 'err_body' in dumped
+    assert 'name="failure_type"' in dumped and 'value="canonical"' in dumped
+    assert 'name="target"' in dumped and 'value="esp32"' in dumped
+    assert 'file="t.py"' in dumped and 'line="9"' in dumped
+    assert '<system-out>out</system-out>' in dumped
+
+    second = parse_xunit_xml(dumped).test_suites[0].test_cases[0]
+    assert second.status == first.status
+    assert second.failure_type == first.failure_type
+    assert second.message == first.message
+    assert second.properties == first.properties
+    assert second.file == first.file and second.line == first.line
+    assert [(d.type, d.message, d.text) for d in second.xml_failure] == [
+        (d.type, d.message, d.text) for d in first.xml_failure
+    ]
+    assert [(d.type, d.message, d.text) for d in second.xml_error] == [
+        (d.type, d.message, d.text) for d in first.xml_error
+    ]
+
+    # Second dump is semantically idempotent with the first dump.
+    dumped_again = generate_xunit_xml(
+        TestSuitesResult(name='root', test_suites=[TestSuiteResult(name='wifi', test_cases=[second])])
+    )
+    third = parse_xunit_xml(dumped_again).test_suites[0].test_cases[0]
+    assert third.failure_type == second.failure_type
+    assert third.properties == second.properties
+    assert [(d.type, d.message, d.text) for d in third.xml_failure] == [
+        (d.type, d.message, d.text) for d in second.xml_failure
+    ]
+    assert [(d.type, d.message, d.text) for d in third.xml_error] == [
+        (d.type, d.message, d.text) for d in second.xml_error
+    ]
+
+
+def test_parse_then_dump_preserves_failure_message_and_text_body() -> None:
+    xml_in = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="root" tests="1" failures="1" errors="0" skipped="0" time="1">
+  <testsuite name="wifi" tests="1" failures="1" errors="0" skipped="0" time="1">
+    <testcase name="t" time="1">
+      <failure type="AssertionError" message="short">long traceback</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+    parsed = parse_xunit_xml(xml_in).test_suites[0].test_cases[0]
+    assert parsed.message == 'short'
+    assert parsed.xml_failure[0].text == 'long traceback'
+
+    dumped = generate_xunit_xml(TestSuitesResult(test_suites=[TestSuiteResult(name='wifi', test_cases=[parsed])]))
+    assert 'message="short"' in dumped
+    assert 'long traceback' in dumped
+    assert 'name="failure_type"' not in dumped
+
+    again = parse_xunit_xml(dumped).test_suites[0].test_cases[0]
+    assert again.message == 'short'
+    assert again.failure_type == 'AssertionError'
+    assert again.xml_failure[0].message == 'short'
+    assert again.xml_failure[0].text == 'long traceback'
+
+
+def test_generate_xunit_xml_falls_back_to_single_status_when_xml_lists_empty() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='fail_one',
+                        status=TestCaseStatus.FAILED,
+                        message='boom',
+                        failure_type='assert',
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert xml_text.count('<failure') == 1
+    assert 'type="assert"' in xml_text
+    assert 'message="boom"' in xml_text
+    assert '<error' not in xml_text
+
+
+def test_parse_and_generate_xunit_xml_round_trips_case_file_and_line() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='test_connect',
+                        classname='wifi.station',
+                        file='tests/test_wifi.py',
+                        line='42',
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert 'file="tests/test_wifi.py"' in xml_text
+    assert 'line="42"' in xml_text
+
+    parsed = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert parsed.file == 'tests/test_wifi.py'
+    assert parsed.line == '42'
+
+
+def test_xunit_logger_add_failure_does_not_overwrite_error(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    xunit_logger = XunitLogger(tmp_path)
+    xunit_logger.begin_case('test_crash')
+    xunit_logger.add_error('crashed')
+    with caplog.at_level('WARNING', logger='esptest.testcase.xunit'):
+        xunit_logger.add_failure('assert failed', fail_type='assert')
+
+    assert xunit_logger.running_case is not None
+    assert xunit_logger.running_case.status == TestCaseStatus.ERROR
+    assert xunit_logger.running_case.message == 'crashed'
+    assert xunit_logger.running_case.failure_type is None
+    assert any('add_failure ignored' in record.message for record in caplog.records)
+
+    xunit_logger.end_case()
+    case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
+    assert case.status == TestCaseStatus.ERROR
+    assert case.message == 'crashed'
+
+
+def test_xunit_logger_end_case_false_does_not_overwrite_error(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path)
+    logger.begin_case('test_crash')
+    logger.add_error('crashed')
+    logger.end_case(result=False, message='assert failed', failure_type='assert')
+
+    case = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME).test_suites[0].test_cases[0]
+    assert case.status == TestCaseStatus.ERROR
+    assert case.message == 'crashed'
+
+
+def test_xunit_logger_mid_run_flush_keeps_case_file_and_line(tmp_path: Path) -> None:
+    logger = XunitLogger(tmp_path, flush_interval=0)
+    logger.begin_case('test_connect')
+    assert logger.running_case is not None
+    logger.running_case.file = 'tests/test_wifi.py'
+    logger.running_case.line = '42'
+    logger.flush(force=True)
+
+    live = parse_xunit_xml(tmp_path / XUNIT_RESULT_FILE_NAME, keep_running=True)
+    case = live.test_suites[0].test_cases[0]
+    assert case.status == TestCaseStatus.RUNNING
+    assert case.file == 'tests/test_wifi.py'
+    assert case.line == '42'
 
 
 def test_trim_long_text_returns_none_and_short_text_unchanged() -> None:
