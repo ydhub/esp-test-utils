@@ -255,16 +255,54 @@ xml_text = generate_xunit_xml(suites)          # XML as a string
 save_xunit_xml(suites, './xunit_report/iperf_result.xml')  # write to disk
 ```
 
+## `failure_type` load and dump
+
+Canonical case type lives on `TestCaseResult.failure_type`. It can also appear
+as case property `failure_type` and/or as `<failure|error type="...">`.
+
+### Load (`parse_xunit_xml`)
+
+Resolution order for `case.failure_type`:
+
+1. property `failure_type` (wins when present)
+2. else the `type` of the status child that drives status (first `<error>` if
+   any, otherwise first `<failure>`)
+
+All `<failure>` / `<error>` children are still kept on `case.xml_failure` /
+`case.xml_error` (message / type / text per entry). When both tags are present,
+**status prefers error** over failure; `case.message` comes from that winning
+child.
+
+### Dump (`generate_xunit_xml`)
+
+- If `xml_failure` / `xml_error` are non-empty: emit those children as-is
+  (each keeps its own `type` / `message` / text).
+- Else: emit one `<failure>` / `<error>` / `<skipped>` from
+  `status` / `message` / `failure_type` (Logger path).
+
+Additionally, dump may write property `failure_type` from
+`case.failure_type` when `xml_*` is non-empty **and** the field cannot be
+recovered from a single matching failure child alone:
+
+| Situation | Write property `failure_type`? |
+| --- | --- |
+| No `xml_*` (fallback single status child) | No — type goes on the status element |
+| Exactly one `xml_failure`, no `xml_error`, and `xml_failure[0].type == case.failure_type` | No — avoids inventing a property on a second dump→parse of a simple failure |
+| Multiple `xml_failure` / any `xml_error`, or single failure whose `type` differs from `case.failure_type` | Yes (`setdefault` — existing property is kept) |
+
+So for multi-failure (or failure+error) cases, set `failure_type='...'` on the
+dataclass; dump stores it as the property so parse restores the canonical type
+even when child `type` attributes differ.
+
 ## Parsing an existing report
 
 `parse_xunit_xml` reads an XML report back into the result dataclasses,
 auto-loading any referenced `ResultDetail` JSON files. Incomplete mid-run
 cases (property `running=true`) become `ERROR` by default; pass
-`keep_running=True` to keep `TestCaseStatus.RUNNING`. Property `failure_type`
-wins over `<failure|error type="...">`. All `<failure>` / `<error>` children
-are kept on `case.xml_failure` / `case.xml_error`; when both are present,
-status prefers **error** over failure. Dump (`generate_xunit_xml`) re-emits
-those lists when non-empty, otherwise falls back to a single status child from
+`keep_running=True` to keep `TestCaseStatus.RUNNING`. See
+[`failure_type` load and dump](#failure_type-load-and-dump) for type /
+multi-status rules. Dump (`generate_xunit_xml`) re-emits `xml_*` lists when
+non-empty, otherwise falls back to a single status child from
 `status` / `message` / `failure_type`. `testcase` attributes `file` / `line`
 round-trip on `TestCaseResult`. Property `known_issue` is exposed as
 `case.known_issue`.

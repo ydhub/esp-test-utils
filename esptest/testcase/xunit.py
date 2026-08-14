@@ -175,12 +175,40 @@ def _add_properties(parent: ET.Element, properties: t.Dict[str, str]) -> None:
         ET.SubElement(properties_elem, 'property', {'name': name, 'value': _xml_safe_text(str(properties[name]))})
 
 
+def _should_emit_failure_type_property(test_case: TestCaseResult) -> bool:
+    """Whether dump should persist ``failure_type`` as a case property.
+
+    Skip when a single ``<failure>`` (and no ``<error>``) already carries the
+    same ``type`` as ``case.failure_type`` — writing the property would make a
+    second dump→parse diverge from a simple Logger-built failure. Emit when
+    there are multiple status children or the canonical type differs from the
+    sole failure child's type.
+    """
+    if test_case.failure_type is None:
+        return False
+    if not (test_case.xml_failure or test_case.xml_error):
+        return False
+    if (
+        len(test_case.xml_failure) == 1
+        and not test_case.xml_error
+        and test_case.xml_failure[0].type == test_case.failure_type
+    ):
+        return False
+    return True
+
+
 def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
     properties = dict(test_case.properties)
     if test_case.logs is not None:
         properties['logs'] = _json_dumps(test_case.logs)
     if test_case.result_detail_files:
         properties['result_detail_files'] = _json_dumps(test_case.result_detail_files)
+    # Keep canonical failure_type as a property when xml_* children alone cannot
+    # represent it (multi children or type mismatch).
+    if _should_emit_failure_type_property(test_case):
+        emitted_type = test_case.failure_type
+        if emitted_type is not None:
+            properties.setdefault('failure_type', emitted_type)
     # started_at is emitted as the <testcase timestamp="..."> attribute, not a property.
     if test_case.status == TestCaseStatus.RUNNING:
         # Always force the marker so a conflicting caller property cannot make a

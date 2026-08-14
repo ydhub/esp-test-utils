@@ -1017,7 +1017,9 @@ def test_generate_xunit_xml_emits_all_xml_failure_and_error_details() -> None:
                         name='multi',
                         status=TestCaseStatus.ERROR,
                         message='should_not_override_xml',
-                        failure_type='should_not_override_xml',
+                        # With multiple xml_failure entries, dump saves failure_type
+                        # as a property (wins over per-child type on parse).
+                        failure_type='should_be_saved_as_property',
                         xml_failure=[
                             XmlStatusDetail(type='A', message='first', text='body-1'),
                             XmlStatusDetail(type='B', message='second', text='body-2'),
@@ -1035,11 +1037,15 @@ def test_generate_xunit_xml_emits_all_xml_failure_and_error_details() -> None:
     assert 'type="A"' in xml_text and 'body-1' in xml_text
     assert 'type="B"' in xml_text and 'body-2' in xml_text
     assert 'type="E"' in xml_text and 'err_body' in xml_text
+    assert 'name="failure_type"' in xml_text
+    assert 'value="should_be_saved_as_property"' in xml_text
     assert 'should_not_override_xml' not in xml_text
 
     round_trip = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
     assert round_trip.status == TestCaseStatus.ERROR
     assert round_trip.message == 'err'
+    assert round_trip.failure_type == 'should_be_saved_as_property'
+    assert round_trip.properties['failure_type'] == 'should_be_saved_as_property'
     assert len(round_trip.xml_failure) == 2
     assert round_trip.xml_failure[1].text == 'body-2'
     assert round_trip.xml_error[0].text == 'err_body'
@@ -1067,6 +1073,67 @@ def test_generate_xunit_xml_falls_back_to_single_status_when_xml_lists_empty() -
     assert 'type="assert"' in xml_text
     assert 'message="boom"' in xml_text
     assert '<error' not in xml_text
+
+
+def test_generate_xunit_xml_skips_failure_type_property_for_matching_single_xml_failure() -> None:
+    """Second dump→parse of a simple failure must not invent failure_type property."""
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='fail_one',
+                        status=TestCaseStatus.FAILED,
+                        message='boom',
+                        failure_type='assert',
+                    )
+                ],
+            )
+        ]
+    )
+
+    first = parse_xunit_xml(generate_xunit_xml(suites)).test_suites[0].test_cases[0]
+    assert first.failure_type == 'assert'
+    assert 'failure_type' not in first.properties
+    assert len(first.xml_failure) == 1
+    assert first.xml_failure[0].type == 'assert'
+
+    second_xml = generate_xunit_xml(TestSuitesResult(test_suites=[TestSuiteResult(name='wifi', test_cases=[first])]))
+    assert 'name="failure_type"' not in second_xml
+
+    second = parse_xunit_xml(second_xml).test_suites[0].test_cases[0]
+    assert second.failure_type == 'assert'
+    assert 'failure_type' not in second.properties
+    assert second.xml_failure[0].type == 'assert'
+
+
+def test_generate_xunit_xml_writes_failure_type_property_when_single_xml_type_differs() -> None:
+    suites = TestSuitesResult(
+        test_suites=[
+            TestSuiteResult(
+                name='wifi',
+                test_cases=[
+                    TestCaseResult(
+                        name='fail_one',
+                        status=TestCaseStatus.FAILED,
+                        failure_type='from_field',
+                        xml_failure=[XmlStatusDetail(type='from_xml', message='boom', text='boom')],
+                    )
+                ],
+            )
+        ]
+    )
+
+    xml_text = generate_xunit_xml(suites)
+    assert 'name="failure_type"' in xml_text
+    assert 'value="from_field"' in xml_text
+    assert 'type="from_xml"' in xml_text
+
+    parsed = parse_xunit_xml(xml_text).test_suites[0].test_cases[0]
+    assert parsed.failure_type == 'from_field'
+    assert parsed.properties['failure_type'] == 'from_field'
+    assert parsed.xml_failure[0].type == 'from_xml'
 
 
 def test_parse_and_generate_xunit_xml_round_trips_case_file_and_line() -> None:
