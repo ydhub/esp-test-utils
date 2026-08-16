@@ -183,6 +183,9 @@ class TestCaseResult:
     result_detail_files: t.List[str] = field(default_factory=list)
     result_details: t.List[ResultDetail] = field(default_factory=list)
     started_at: t.Optional[str] = None
+    # JUnit-style source location attributes on <testcase>.
+    file: t.Optional[str] = None
+    line: t.Optional[str] = None
     # Raw XML status children retained on parse (may contain multiple entries).
     xml_failure: t.List[XmlStatusDetail] = field(default_factory=list)
     xml_error: t.List[XmlStatusDetail] = field(default_factory=list)

@@ -48,8 +48,8 @@ Subclasses may override the reserved set. It does not flush immediately—the
 properties are written by a later periodic or explicit flush, or when
 `end_case()` finishes the case.
 
-`end_case(result=False, ...)` marks the running case FAILED; `add_skipped`
-marks it SKIPPED.
+`end_case(result=False, ...)` records a failure via `add_failure` (no-op if
+the case is already ERROR); `add_skipped` marks it SKIPPED.
 
 `begin_case` records `TestCaseResult.started_at` (ISO timestamp). On write it
 becomes the `<testcase timestamp="...">` attribute (not a case property).
@@ -75,7 +75,7 @@ signatures live in the Sphinx API pages generated from
 | API | Role |
 | --- | --- |
 | `begin_case(case_id, classname='', category=None)` | Start a case. If one was already open, it is closed as ERROR via `close(...)` first. Optional `category` is stored as a case property. |
-| `end_case(result=True, message='', failure_type='')` | Finish the running case (duration + stdout/stderr), append it to the suite, and flush. `result=False` records a failure (unless one was already set). |
+| `end_case(result=True, message='', failure_type='')` | Finish the running case (duration + stdout/stderr), append it to the suite, and flush. `result=False` records a failure via `add_failure` (no-op if the case is already ERROR). |
 | `close(message=...)` | Force-finish a still-running case as ERROR (e.g. runner teardown / interrupt), then flush. |
 | `flush(force=False)` | Write the XML report. Without `force=True`, writes are rate-limited by `flush_interval`. |
 
@@ -111,7 +111,7 @@ assert logger.current_test_case.name == 'test_assoc'
 | API | Role |
 | --- | --- |
 | `add_sys_out(message)` / `add_sys_err(message)` | Append to case stdout / stderr (bounded head+tail). Before `begin_case`, text is buffered and prepended to the next case. |
-| `add_failure(message, fail_type=...)` | Mark the **running** case FAILED (may be called before `end_case`). |
+| `add_failure(message, fail_type=...)` | Mark the **running** case FAILED (may be called before `end_case`). No-op if the case is already ERROR. |
 | `add_error(message)` | Mark the running case ERROR. |
 | `add_skipped(message='')` | Mark the running case SKIPPED. |
 | `clear_failures()` | Reset the running case back to PASSED and clear its message. |
@@ -262,8 +262,15 @@ auto-loading any referenced `ResultDetail` JSON files. Incomplete mid-run
 cases (property `running=true`) become `ERROR` by default; pass
 `keep_running=True` to keep `TestCaseStatus.RUNNING`. Property `failure_type`
 wins over `<failure|error type="...">`. All `<failure>` / `<error>` children
-are kept on `case.xml_failure` / `case.xml_error`. Property `known_issue` is
-exposed as `case.known_issue`.
+are kept on `case.xml_failure` / `case.xml_error`; when both are present,
+status prefers **error** over failure. Dump (`generate_xunit_xml`) re-emits
+those lists when non-empty, otherwise falls back to a single status child from
+`status` / `message` / `failure_type`. When `xml_*` is present, dump does
+**not** write `case.failure_type` as a property — external reports derive type
+from the existing property or child `type` on parse. Parse→dump preserves
+model fields (including `xml_*` / properties / `file` / `line`) but is not
+byte-identical (whitespace may change). Property `known_issue` is exposed as
+`case.known_issue`.
 
 ```python
 from esptest.testcase.xunit import parse_xunit_xml

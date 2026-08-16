@@ -189,7 +189,28 @@ def _case_properties(test_case: TestCaseResult) -> t.Dict[str, str]:
     return properties
 
 
+def _append_xml_status_details(
+    testcase_elem: ET.Element,
+    tag: str,
+    details: t.List[XmlStatusDetail],
+) -> None:
+    for detail in details:
+        elem = ET.SubElement(testcase_elem, tag)
+        if detail.type is not None:
+            elem.set('type', _xml_safe_text(detail.type))
+        if detail.message is not None:
+            elem.set('message', _xml_safe_text(detail.message))
+        if detail.text is not None:
+            elem.text = _xml_safe_text(detail.text)
+
+
 def _add_status_element(testcase_elem: ET.Element, test_case: TestCaseResult) -> None:
+    # Prefer raw parsed children when present so multi-failure / coexisting
+    # error round-trips; otherwise fall back to a single status child.
+    if test_case.xml_failure or test_case.xml_error:
+        _append_xml_status_details(testcase_elem, 'failure', test_case.xml_failure)
+        _append_xml_status_details(testcase_elem, 'error', test_case.xml_error)
+        return
     if test_case.status == TestCaseStatus.FAILED:
         failure = ET.SubElement(testcase_elem, 'failure')
         if test_case.failure_type is not None:
@@ -220,6 +241,10 @@ def _test_case_to_xml(test_case: TestCaseResult) -> ET.Element:
         attrs['time'] = _format_time(test_case.duration)
     if test_case.started_at is not None:
         attrs['timestamp'] = test_case.started_at
+    if test_case.file is not None:
+        attrs['file'] = test_case.file
+    if test_case.line is not None:
+        attrs['line'] = test_case.line
 
     testcase_elem = ET.Element('testcase', attrs)
     _add_properties(testcase_elem, _case_properties(test_case))
@@ -329,19 +354,21 @@ def _parse_case_status(
 ) -> t.Tuple[str, t.Optional[str], t.Optional[str], t.List[XmlStatusDetail], t.List[XmlStatusDetail]]:
     xml_failure = _parse_xml_status_details(testcase_elem, 'failure')
     xml_error = _parse_xml_status_details(testcase_elem, 'error')
-    if xml_failure:
-        first = xml_failure[0]
+    # Prefer <error> over <failure> when both are present (status / message /
+    # type); both lists are still retained for dump round-trips.
+    if xml_error:
+        first = xml_error[0]
         return (
-            TestCaseStatus.FAILED,
+            TestCaseStatus.ERROR,
             first.message or first.text,
             first.type,
             xml_failure,
             xml_error,
         )
-    if xml_error:
-        first = xml_error[0]
+    if xml_failure:
+        first = xml_failure[0]
         return (
-            TestCaseStatus.ERROR,
+            TestCaseStatus.FAILED,
             first.message or first.text,
             first.type,
             xml_failure,
@@ -427,6 +454,8 @@ def _parse_test_case(
         result_detail_files=result_detail_files,
         result_details=_load_result_details(result_detail_files, base_dir),
         started_at=started_at,
+        file=testcase_elem.get('file'),
+        line=testcase_elem.get('line'),
         xml_failure=xml_failure,
         xml_error=xml_error,
     )
@@ -750,6 +779,14 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
     def add_failure(self, message: str = DEFAULT_FAIL_MESSAGE, fail_type: str = DEFAULT_FAIL_TYPE) -> None:
         if self.running_case is None:
             raise RuntimeError('No running test case')
+        # Do not downgrade an existing ERROR (e.g. after add_error).
+        if self.running_case.status == TestCaseStatus.ERROR:
+            logger.warning(
+                'add_failure ignored for case %r: status is already ERROR (%r)',
+                self.running_case.name,
+                self.running_case.message,
+            )
+            return
         self.running_case.status = TestCaseStatus.FAILED
         self.running_case.message = _trim_long_text(message) or DEFAULT_FAIL_MESSAGE
         self.running_case.failure_type = fail_type or DEFAULT_FAIL_TYPE
@@ -867,6 +904,8 @@ class XunitLogger:  # pylint: disable=too-many-public-methods
             logs=self.running_case.logs,
             result_detail_files=list(self.running_case.result_detail_files),
             started_at=self.running_case.started_at,
+            file=self.running_case.file,
+            line=self.running_case.line,
         )
 
     @_synchronized
