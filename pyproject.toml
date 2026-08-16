@@ -14,6 +14,7 @@ include = ["esptest", "esptest.*"]
     classifiers = [
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
+        "License :: OSI Approved :: Apache Software License",
         "Topic :: Software Development :: Testing",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
@@ -27,6 +28,11 @@ include = ["esptest", "esptest.*"]
     ]
     description = "ESP Test Utils"
     dynamic = ["version"]
+    # Keep the legacy table form `license = { file = "LICENSE" }` instead of the
+    # PEP 639 SPDX form `license = "Apache-2.0"` on purpose: PEP 639 requires
+    # setuptools >= 77, which in turn requires Python >= 3.8, while this project
+    # still declares `requires-python = ">=3.7"` (setuptools 67.8.0 is the last
+    # version that runs on Python 3.7). Revisit when Python 3.7 support is dropped.
     license = { file = "LICENSE" }
     name = "esp-test-utils"
     readme = "README.md"

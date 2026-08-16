@@ -1,0 +1,60 @@
+esp-test-utils
+Copyright 2024-2026 Chen Yudong
+
+This product is licensed under the Apache License, Version 2.0 (see the
+LICENSE file). This NOTICE file is provided for attribution purposes as
+required by Section 4(d) of the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+Third-party notices
+--------------------------------------------------------------------------------
+
+esp-test-utils depends on the following third-party components at runtime.
+Development / test / documentation tooling (pytest, commitizen, sphinx, ...)
+is not redistributed and is therefore not listed here.
+
+Core runtime dependencies
+-------------------------
+  psutil             BSD-3-Clause
+  pyserial           BSD-3-Clause
+  PyYAML             MIT
+  pexpect            ISC
+  pyusb              BSD-3-Clause
+  pyudev             LGPL-2.1-or-later        (Linux only)
+  esptool            GPL-2.0-or-later WITH linking exception  (see note below)
+  packaging          Apache-2.0 OR BSD-2-Clause
+  rich               MIT
+  typing_extensions  PSF-2.0
+
+Optional dependencies (extras "idfci" / "all")
+-----------------------------------------------
+  pyecharts          MIT
+  python-gitlab      LGPL-3.0-or-later
+  minio              Apache-2.0
+  esp-idf-monitor    Apache-2.0
+  scapy              GPL-2.0-or-later         (extras "all" only; see note below)
+
+--------------------------------------------------------------------------------
+Note on GPL-licensed dependencies
+--------------------------------------------------------------------------------
+
+1. esptool (https://github.com/espressif/esptool) is distributed under the
+   GNU General Public License, version 2 or later, **with a linking exception**
+   granted by its copyright holders. The exception permits linking esptool with
+   "independent modules" - including software distributed under other licenses,
+   such as the Apache-2.0 license used by this project - and distributing the
+   resulting combined work under the terms of your choice, provided that the
+   license terms of each linked independent module are met. Use of esptool as
+   a dependency of this Apache-2.0 project is therefore permitted; nothing in
+   this NOTICE changes the license terms of esptool itself, and any
+   redistribution of esptool must comply with its own license terms.
+
+2. scapy (https://scapy.net) is distributed under the GNU General Public
+   License, version 2 or later, **without** a linking exception. scapy is an
+   optional dependency, only pulled in by the "all" extra, and it is used for
+   network packet capture in test scenarios. If you redistribute this project
+   together with scapy, the combined distribution must comply with the terms
+   of the GPL; distributions that omit the "all" extra are not affected.
+
+3. pyudev (LGPL-2.1-or-later) and python-gitlab (LGPL-3.0-or-later) are used
+   as dynamically linked libraries, which is permitted under the LGPL.

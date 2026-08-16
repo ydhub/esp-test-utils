@@ -1,6 +1,7 @@
 .vscode/
 venv/
 venv*/
+.venv/
 .cursor/
 .worktrees/
 
