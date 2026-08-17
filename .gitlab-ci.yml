@@ -73,6 +73,26 @@ pytest-linux:
   tags:
     - host_test
 
+# Free-threaded (no-GIL) trial on a community image. allow_failure: official
+# library/python does not yet publish 3.14t tags; do not merge coverage here.
+pytest-linux-freethreaded:
+  stage: test
+  needs: []
+  image: tdciwasaki/python-nogil:3.14-slim-trixie
+  allow_failure: true
+  before_script:
+    - python -c 'import sys; gil=getattr(sys,"_is_gil_enabled",None); assert gil is not None and gil() is False, "expected free-threaded build with GIL disabled"'
+    - pip install -e '.[test]'
+  script:
+    - pytest --junitxml=reports/junit-freethreaded.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit-freethreaded.xml
+    expire_in: 2 days
+  tags:
+    - host_test
+
 pytest-win32:
   stage: test
   needs:
