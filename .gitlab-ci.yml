@@ -81,8 +81,20 @@ pytest-linux-freethreaded:
   image: tdciwasaki/python-nogil:3.14-slim-trixie
   allow_failure: true
   before_script:
+    # Interpreter itself must be free-threaded before we install anything.
     - python -c 'import sys; gil=getattr(sys,"_is_gil_enabled",None); assert gil is not None and gil() is False, "expected free-threaded build with GIL disabled"'
     - pip install -e '.[test]'
+    # Native deps (e.g. psutil/PyYAML) may re-enable the GIL on import; fail the
+    # job if that happens so "green" does not mean we silently ran with GIL on.
+    - |
+      python -c '
+      import sys
+      import esptest
+      import psutil
+      import yaml
+      gil = getattr(sys, "_is_gil_enabled", None)
+      assert gil is not None and gil() is False, "GIL re-enabled after importing esptest/deps"
+      '
   script:
     - pytest --junitxml=reports/junit-freethreaded.xml
   artifacts:
