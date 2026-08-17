@@ -148,6 +148,38 @@ def test_esp_dut_remote_url_uses_serial_for_url() -> None:
             base_port.close()
 
 
+def test_esp_dut_loop_url_raw_write_reaches_base_port_read_all_bytes() -> None:
+    """Raw write on serial_for_url(loop://) must be visible via BasePort redirect."""
+    base_port = None
+    dut = object.__new__(EspDut)
+    dut._kwargs = {}
+    dut._raw_port = None
+    dut._dut_config = DutConfig(
+        name='remote_dut_redirect',
+        device='loop://',
+        baudrate=74880,
+        serial_configs={'timeout': 0.05, 'rtscts': False},
+        support_esptool=False,
+    )
+    try:
+        base_port = EspDut._create_base_port(dut)
+        assert isinstance(base_port, BasePort)
+        assert isinstance(dut._raw_port, serial.SerialBase)
+
+        dut._raw_port.write(b'hello')
+        got = b''
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            got += base_port.read_all_bytes(flush=True)
+            if got == b'hello':
+                break
+            time.sleep(0.01)
+        assert got == b'hello'
+    finally:
+        if base_port:
+            base_port.close()
+
+
 def test_esp_dut_close_closes_serial_base_raw_port() -> None:
     raw_port = serial.SerialBase.__new__(serial.SerialBase)
     close_called = {'count': 0}
