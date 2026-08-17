@@ -86,6 +86,8 @@ pytest-linux-freethreaded:
     GIT_DEPTH: "0"
     SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0+freethreaded.${CI_COMMIT_SHORT_SHA}"
   before_script:
+    # slim image lacks tools required by fetch_repo / shell_port tests.
+    - apt-get update && apt-get install -y --no-install-recommends git procps && rm -rf /var/lib/apt/lists/*
     # Interpreter itself must be free-threaded before we install anything.
     - python -c 'import sys; gil=getattr(sys,"_is_gil_enabled",None); assert gil is not None and gil() is False, "expected free-threaded build with GIL disabled"'
     - git fetch --tags --force || true

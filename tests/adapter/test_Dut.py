@@ -137,9 +137,12 @@ def test_esp_dut_remote_url_uses_serial_for_url() -> None:
         assert dut._raw_port.is_open is True
         assert dut._raw_port.rts is False
         assert dut._raw_port.dtr is False
-        # real serial_for_url(loop://) should read back what we wrote
-        dut._raw_port.write(b'hello')
-        assert dut._raw_port.read(5) == b'hello'
+        # real serial_for_url(loop://) should read back what we wrote.
+        # Stop the redirect reader first: it shares the same serial fd and would
+        # race the direct read (flaky under free-threaded Python).
+        with base_port.disable_redirect_thread():
+            dut._raw_port.write(b'hello')
+            assert dut._raw_port.read(5) == b'hello'
     finally:
         if base_port:
             base_port.close()
