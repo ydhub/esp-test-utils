@@ -80,9 +80,15 @@ pytest-linux-freethreaded:
   needs: []
   image: tdciwasaki/python-nogil:3.14-slim-trixie
   allow_failure: true
+  variables:
+    # Shallow MR checkouts often lack tags; isolated build env then fails
+    # setuptools-scm version inference (other jobs may hide this with older scm).
+    GIT_DEPTH: "0"
+    SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0+freethreaded.${CI_COMMIT_SHORT_SHA}"
   before_script:
     # Interpreter itself must be free-threaded before we install anything.
     - python -c 'import sys; gil=getattr(sys,"_is_gil_enabled",None); assert gil is not None and gil() is False, "expected free-threaded build with GIL disabled"'
+    - git fetch --tags --force || true
     - pip install -e '.[test]'
     # Native deps (e.g. psutil/PyYAML) may re-enable the GIL on import; fail the
     # job if that happens so "green" does not mean we silently ran with GIL on.
