@@ -21,11 +21,46 @@ from esptest.adapter.dut import DutBase
 from esptest.adapter.dut.create_dut import create_dut
 from esptest.adapter.dut.dut_base import DutConfig
 from esptest.adapter.dut.esp_dut import EspDut
-from esptest.adapter.port.base_port import BasePort, ExpectTimeout, RawPort, g
+from esptest.adapter.port.base_port import BasePort, ExpectTimeout, PortSpawn, RawPort, g
 from esptest.adapter.port.serial_port import SerialExt
 from esptest.adapter.port.shell_port import ShellRaw
 from esptest.common.data_monitor import DataMonitor
 from esptest.devices.serial_dut import SerialDut  # deprecated
+
+# Handing data from the port read thread to the test thread takes at least one serial read
+# timeout, and the extra scheduling latency is unbounded on slow or free-threaded builds.
+# Wait for the expected state instead of sleeping a fixed multiple of the read timeout.
+WAIT_DATA_TIMEOUT = 5.0
+
+
+def _wait_until(condition: t.Callable[[], bool], timeout: float = WAIT_DATA_TIMEOUT) -> bool:
+    deadline = time.perf_counter() + timeout
+    while True:
+        if condition():
+            return True
+        if time.perf_counter() >= deadline:
+            return False
+        time.sleep(0.002)
+
+
+def _wait_for_received_bytes(spawn: PortSpawn, size: int, timeout: float = WAIT_DATA_TIMEOUT) -> int:
+    """Wait until the read thread received ``size`` bytes, without consuming them.
+
+    Reading through ``data_cache`` would move the data into the pexpect buffer and defeat
+    the data cache trim logic some tests exercise, so peek at the read queue instead.
+    """
+
+    def _received() -> int:
+        # pylint: disable=protected-access
+        return len(spawn._data_cache) + sum(len(chunk) for chunk in list(spawn._read_queue.queue))
+
+    _wait_until(lambda: _received() >= size, timeout=timeout)
+    return _received()
+
+
+def _read_file_bytes(path: str) -> bytes:
+    with open(path, 'rb') as fr:
+        return fr.read()
 
 
 def test_base_dut_isinstance() -> None:
@@ -493,6 +528,7 @@ class TestSerialDut(unittest.TestCase):
         fd_master = os.fdopen(self.master, 'wb')
         original_limit = g.DATA_CACHE_SIZE_LIMIT
         try:
+            assert dut.spawn is not None
             # Shrink the cache limit so we can trigger the trim path deterministically.
             g.DATA_CACHE_SIZE_LIMIT = 2 * 1024
             # Write more than 2x the limit: head (older) + marker + tail (newer)
@@ -501,9 +537,9 @@ class TestSerialDut(unittest.TestCase):
             tail = b'T' * (6 * 1024)
             fd_master.write(head + marker + tail)
             fd_master.flush()
-            time.sleep(ser_read_timeout * 5)
+            # The trim result only holds once the whole block was received.
+            assert _wait_for_received_bytes(dut.spawn, len(head + marker + tail)) == len(head + marker + tail)
             # Trigger read_nonblocking so the trim branch in PortSpawn runs
-            assert dut.spawn is not None
             dut.spawn.read_nonblocking(size=1, timeout=0)  # trigger data cache trim
             # After trim, data cache should be <= DATA_CACHE_SIZE_LIMIT
             assert len(dut.spawn._data_cache) <= 2 * g.DATA_CACHE_SIZE_LIMIT  # pylint: disable=protected-access
@@ -516,7 +552,7 @@ class TestSerialDut(unittest.TestCase):
             data = b'a' * 2048 + b'b' * 2048 + b'c' * 1024
             fd_master.write(data)
             fd_master.flush()
-            time.sleep(ser_read_timeout * 5)
+            assert _wait_for_received_bytes(dut.spawn, len(data)) == len(data)
             match = dut.expect(re.compile(r'.+', re.DOTALL), timeout=0.1)
             assert match
             assert len(match.group(0)) == 1024  # due to matched and maxread
@@ -529,7 +565,7 @@ class TestSerialDut(unittest.TestCase):
             data = b'a' * 2048 + b'b' * 2048 + b'c' * 1024
             fd_master.write(data)
             fd_master.flush()
-            time.sleep(ser_read_timeout * 3)
+            assert _wait_for_received_bytes(dut.spawn, len(data)) == len(data)
             # assert dut.data_cache == 'b' * 1024 + 'c' * 1024
             with pytest.raises(Exception):
                 # data cache was cleaned, left b*1024 and c*1024 in pexpect buffer
@@ -541,7 +577,7 @@ class TestSerialDut(unittest.TestCase):
             fd_master.write(data)
             fd_master.write(data)
             fd_master.flush()
-            time.sleep(ser_read_timeout * 3)
+            assert _wait_for_received_bytes(dut.spawn, 2 * len(data)) == 2 * len(data)
             data_cache = dut.data_cache
             assert data_cache == 'b' * 1024 + 'c' * 1024 + 'd' * 2048
 
@@ -561,10 +597,8 @@ class TestSerialDut(unittest.TestCase):
             # port data
             fd_master.write(b'bbb')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
+            assert _wait_until(lambda: dut.data_cache == 'bbb')
             # get data cache does not clear port buffer
-            data_cache = dut.data_cache
-            assert data_cache == 'bbb'
             data_cache = dut.data_cache
             assert data_cache == 'bbb'
             # Clear port buffer
@@ -576,15 +610,13 @@ class TestSerialDut(unittest.TestCase):
             # Test expect bytes success
             fd_master.write(b'ccc')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
-            bytes_cache = dut.read_all_bytes(flush=False)
-            assert bytes_cache == b'ccc'
+            assert _wait_until(lambda: dut.read_all_bytes(flush=False) == b'ccc')
             bytes_cache = dut.read_all_bytes(flush=True)
             assert bytes_cache == b'ccc'
             # Test read all bytes very long data
             fd_master.write(b'a' * 1000 * 1000)
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
+            assert _wait_until(lambda: len(dut.read_all_bytes(flush=False)) == 1000 * 1000)
             bytes_cache = dut.read_all_bytes(flush=False)
             assert len(bytes_cache) == 1000 * 1000
             bytes_cache = dut.read_all_bytes(flush=True)
@@ -596,7 +628,7 @@ class TestSerialDut(unittest.TestCase):
             self._close_file_io(fd_master)
 
     def test_serial_dut_log(self) -> None:
-        ser_read_timeout = 0.01
+        ser_read_timeout = 0.02
         ser = serial.Serial(self.serial_port, 115200, timeout=ser_read_timeout)
         log_file = tempfile.mktemp()
         dut = SerialDut(ser, 'MyDut', log_file=log_file)
@@ -606,46 +638,34 @@ class TestSerialDut(unittest.TestCase):
             # test one line
             fd_master.write(b'one line \r\n')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
-            with open(log_file, 'rb') as fr:
-                # if we open the log file in 'r' mode, we may get \n rather than \r\n
-                data = fr.read()
-                assert b'one line \r\n' in data
+            # if we open the log file in 'r' mode, we may get \n rather than \r\n
+            assert _wait_until(lambda: b'one line \r\n' in _read_file_bytes(log_file))
             # test one line without \n
             fd_master.write(b'line without endl')
             fd_master.flush()
             time.sleep(ser_read_timeout * 2)
-            with open(log_file, 'rb') as fr:
-                data = fr.read()
-                assert b'line without endl' not in data
-            # default timeout of writting non-endl line is serial.timeout * 3
-            time.sleep(ser_read_timeout * 5)
-            with open(log_file, 'rb') as fr:
-                data = fr.read()
-                assert b'line without endl' in data
-            # test line cache, write two times for one line within very short delay
+            assert b'line without endl' not in _read_file_bytes(log_file)
+            # default timeout of writting non-endl line is serial.timeout * 5
+            assert _wait_until(lambda: b'line without endl' in _read_file_bytes(log_file))
+            # test line cache, write two times for one line within very short delay.
+            # The idle flush timer restarts at the flush above, so send the first chunk
+            # right away rather than after another fixed sleep.
             fd_master.write(b'aaa')
             fd_master.flush()
             time.sleep(ser_read_timeout)
             fd_master.write(b'bbb\r\n')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
-            with open(log_file, 'rb') as fr:
-                data = fr.read()
-                assert b'aaabbb\r\n' in data
-            # test line cache, multiple lines at one time
+            assert _wait_until(lambda: b'aaabbb\r\n' in _read_file_bytes(log_file))
+            # test line cache, multiple lines at one time:
+            # complete lines are written out, the trailing partial line stays cached
             fd_master.write(b'aaa\r\nbbb\r\nccc')
             fd_master.flush()
-            time.sleep(ser_read_timeout * 2)
-            with open(log_file, 'rb') as fr:
-                data = fr.read()
-                assert b'aaabbb\r\n' in data
+            assert _wait_until(lambda: b'aaa\r\n' in _read_file_bytes(log_file))
+            assert b'ccc' not in _read_file_bytes(log_file)
         except AssertionError:
             try:
                 # show data in log file
-                with open(log_file, 'rb') as fr:
-                    data = fr.read()
-                    logging.error(f'data in log file:\n{data!r}')
+                logging.error(f'data in log file:\n{_read_file_bytes(log_file)!r}')
             except OSError:
                 pass
             raise
@@ -666,11 +686,13 @@ class TestSerialDut(unittest.TestCase):
             # port data
             fd_master.write(b'aaabbb')
             fd_master.flush()
+            assert _wait_until(lambda: dut.read_all_bytes(flush=False) == b'aaabbb')
             with pytest.raises(ExpectTimeout) as e:
                 dut.expect('ddd', timeout=0.01)
             assert e.value.data_in_buffer == b'aaabbb'
             fd_master.write(b'\xff')
             fd_master.flush()
+            assert _wait_until(lambda: dut.read_all_bytes(flush=False) == b'aaabbb\xff')
             with pytest.raises(ExpectTimeout) as e:
                 dut.expect('ddd', timeout=0.01)
             assert e.value.data_in_buffer == b'aaabbb\xff'
