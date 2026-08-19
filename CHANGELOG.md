@@ -1,3 +1,13 @@
+## v0.6.3 (2026-08-19)
+
+
+- fix(thread): harden PortSpawn/DataMonitor for free-threaded Python (6e0b995)
+- feat(license): add NOTICE for third-party licenses and license classifier (d1bfce1)
+- feat(testcase): round-trip multi failure/error and case file/line (8e58d6e)
+- feat(testcase): add known_issue/failure_type APIs and xml status details (f056180)
+- fix(testcase): reserve running property for mid-run xunit snapshots (2fbb532)
+- feat(testcase): add TestCaseStatus.RUNNING for mid-run xunit flushes (9eb78bd)
+
 ## v0.6.2 (2026-08-10)
 
 
