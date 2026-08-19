@@ -51,6 +51,9 @@ class _ChangeConfigHarness:
 
 def test_add_mixin_by_type_for_serial_is_idempotent() -> None:
     raw_port = _DummySerial.__new__(_DummySerial)
+    # Uninitialized __new__ instances lack pyserial open-state attrs; mark closed
+    # so GC/close does not raise an unraisable AttributeError on is_open.
+    raw_port.is_open = False
 
     SerialPortMixin._add_mixin_by_type(raw_port)
     first_type = type(raw_port)
@@ -64,6 +67,7 @@ def test_add_mixin_by_type_for_serial_is_idempotent() -> None:
 
 def test_add_mixin_by_type_for_serial_base_is_idempotent() -> None:
     raw_port = _DummySerialBase.__new__(_DummySerialBase)
+    raw_port.is_open = False
     original_type = type(raw_port)
 
     SerialPortMixin._add_mixin_by_type(raw_port)

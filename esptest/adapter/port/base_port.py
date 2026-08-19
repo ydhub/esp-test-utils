@@ -140,10 +140,13 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self._read_queue: queue.Queue = queue.Queue()
         self._read_thread_stop_event = threading.Event()
         self._read_error: t.Optional[BaseException] = None
+        # Protect publication of callback/monitors for the read thread.
+        self._publish_lock = threading.RLock()
         # callbacks
         self._rx_log_callback: t.Optional[t.Callable[[str, bytes], None]] = kwargs.get('rx_log_callback', None)
-        # monitors
-        self._monitors: t.Optional[t.List[DataMonitor]] = kwargs.get('monitors', None)
+        # monitors (copy so callers can mutate their own list safely)
+        _monitors = kwargs.get('monitors', None)
+        self._monitors: t.Optional[t.List[DataMonitor]] = list(_monitors) if _monitors is not None else None
         self._serial_error_reconnect_count_left = max(0, int(g.ALLOW_SERIAL_ERROR_RECONNECT_COUNT))
         self._read_thread = threading.Thread(target=self._read_incoming, name=f'Spawn_{self.name}')
         self._read_thread.daemon = True
@@ -151,12 +154,22 @@ class PortSpawn(SpawnBase, t.Generic[T]):
 
     @property
     def receive_callback(self) -> t.Optional[t.Callable[[str, bytes], None]]:
-        return self._rx_log_callback
+        with self._publish_lock:
+            return self._rx_log_callback
 
     @receive_callback.setter
     @deprecated('set receive_callback directly is deprecated, use rx_log_callback instead')
     def receive_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
-        self._rx_log_callback = new_callback
+        with self._publish_lock:
+            self._rx_log_callback = new_callback
+
+    def set_rx_log_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
+        with self._publish_lock:
+            self._rx_log_callback = new_callback
+
+    def set_monitors(self, new_monitors: t.Optional[t.List[DataMonitor]]) -> None:
+        with self._publish_lock:
+            self._monitors = list(new_monitors) if new_monitors is not None else []
 
     @property
     def raw_port(self) -> T:
@@ -272,12 +285,14 @@ class PortSpawn(SpawnBase, t.Generic[T]):
                     return
             if new_data:
                 self._read_queue.put(new_data)
-                if self._rx_log_callback:
+                with self._publish_lock:
+                    rx_log_callback = self._rx_log_callback
+                    monitors = list(self._monitors or ())
+                if rx_log_callback:
                     # https://stackoverflow.com/questions/69732212/pylint-self-xxx-is-not-callable
-                    self._rx_log_callback(self.name, new_data)  # pylint: disable=E1102
-                if self._monitors:
-                    for monitor in self._monitors:
-                        monitor.append_data(self.name, new_data)
+                    rx_log_callback(self.name, new_data)  # pylint: disable=E1102
+                for monitor in monitors:
+                    monitor.append_data(self.name, new_data)
             # the last line may be cached, to make the file more readable after adding timestamp
             # always check need write to file or not whether there's new data
             self._write_port_log(new_data)
@@ -342,8 +357,9 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self._read_thread_stop_event.set()
         self._read_thread.join()
         self._read_queue.empty()
-        self._rx_log_callback = None
-        self._monitors = []
+        with self._publish_lock:
+            self._rx_log_callback = None
+            self._monitors = []
         self._data_cache = b''
         self._line_cache = b''
 
@@ -497,7 +513,7 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
     def set_rx_log_callback(self, new_callback: t.Optional[t.Callable[[str, bytes], None]]) -> None:
         self._kwargs['rx_log_callback'] = new_callback
         if self._pexpect_spawn:
-            self._pexpect_spawn._rx_log_callback = new_callback  # pylint: disable=protected-access
+            self._pexpect_spawn.set_rx_log_callback(new_callback)
 
     @property
     def monitors(self) -> t.List[DataMonitor]:
@@ -508,7 +524,7 @@ class BasePort(DataMonitorMixin, _BasePort, t.Generic[T]):  # pylint: disable=to
         synced_monitors = list(new_monitors)
         self._kwargs['monitors'] = synced_monitors
         if self._pexpect_spawn:
-            self._pexpect_spawn._monitors = synced_monitors  # pylint: disable=protected-access
+            self._pexpect_spawn.set_monitors(synced_monitors)
 
     @property
     def spawn(self) -> t.Optional[PortSpawn]:

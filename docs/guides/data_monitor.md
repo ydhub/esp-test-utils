@@ -35,6 +35,22 @@ with these attributes:
 A monitor also keeps aggregate state you can inspect afterwards:
 `matched_count`, `matched_ports`, and `matched_results`.
 
+When writers may still be active (for example multiple port read threads),
+prefer {meth}`~esptest.common.data_monitor.DataMonitor.snapshot`, which returns a
+consistent copy of `(matched_count, matched_ports, matched_results)` under the
+match lock:
+
+```python
+count, ports, results = monitor.snapshot()
+```
+
+Callbacks are invoked **after** match-state locks are released, and are
+serialized per `DataMonitor` instance via an internal reentrant callback lock.
+A callback may call `append_data` again on the same monitor without deadlocking;
+callbacks from different threads on the same monitor still run one at a time.
+Different monitor instances may still fire callbacks concurrently. Keep callbacks
+short; a slow callback delays later callbacks on the same monitor.
+
 ## Pattern types
 
 - **Compiled `re.Pattern`** — matched with `search`; `match` is an `re.Match`.

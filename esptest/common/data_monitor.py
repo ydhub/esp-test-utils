@@ -57,6 +57,9 @@ class DataMonitor:
         self._data_cache_lock = threading.Lock()
         # shared matched states across ports
         self._matched_lock = threading.Lock()
+        # serialize user callbacks per monitor (separate from match locks).
+        # RLock: same-thread reentrant append_data from a callback must not deadlock.
+        self._callback_lock = threading.RLock()
         # matched results
         self.matched_count = 0
         self.matched_ports: t.List[str] = []
@@ -81,6 +84,19 @@ class DataMonitor:
         if not isinstance(other, self.__class__):
             return False
         return hash(self) == hash(other) and self.pattern == other.pattern
+
+    def snapshot(self) -> t.Tuple[int, t.List[str], t.List[MatchedResult]]:
+        """Return a thread-safe copy of match aggregates.
+
+        Prefer this over reading ``matched_count`` / ``matched_ports`` /
+        ``matched_results`` directly when writers may still be active.
+        """
+        with self._matched_lock:
+            return (
+                self.matched_count,
+                list(self.matched_ports),
+                list(self.matched_results),
+            )
 
     def _check_pattern(
         self,
@@ -112,6 +128,7 @@ class DataMonitor:
                 data_cache = _DataCache()
                 self._data_cache[port_name] = data_cache
 
+        batch: t.List[MatchedResult] = []
         with data_cache.lock:
             data_cache.data += to_str(data)
             # consume all matches available in current accumulated cache
@@ -122,13 +139,20 @@ class DataMonitor:
                     self.matched_count += 1
                     self.matched_ports.append(port_name)
                     self.matched_results.append(matched_result)
+                batch.append(matched_result)
                 # trim data cache
                 before_trim_data = data_cache.data
                 if pos <= 0:
                     pos = 1
                 data_cache.data = data_cache.data[pos:]
-                if self._callback:
-                    self._callback(matched_result)
                 if data_cache.data == before_trim_data:
                     break
                 matched, pos = self._check_pattern(data_cache.data, self._pattern)
+
+        if not batch or not self._callback:
+            return
+        # Fire outside match locks; serialize so concurrent append_data paths
+        # do not run this monitor's callback overlapping.
+        with self._callback_lock:
+            for matched_result in batch:
+                self._callback(matched_result)

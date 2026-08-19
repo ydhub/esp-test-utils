@@ -276,3 +276,55 @@ def test_base_port_expect_consumes_pending_data_before_port_read_error(monkeypat
             port.expect_exact('next line', timeout=2)
     finally:
         port.close()
+
+
+def test_base_port_concurrent_monitor_and_callback_publish() -> None:
+    """Main-thread monitor/callback swaps must not race the read thread."""
+    raw_port = MockRawPort()
+    port = BasePort(raw_port, name='publish_race', monitors=[])
+    errors: list = []
+    stop = threading.Event()
+    hits = {'callback': 0, 'monitor': 0}
+    hits_lock = threading.Lock()
+
+    def _callback(_name: str, _data: bytes) -> None:
+        with hits_lock:
+            hits['callback'] += 1
+
+    def _feeder() -> None:
+        while not stop.is_set():
+            raw_port.feed_data(b'PING\n')
+            time.sleep(0.001)
+
+    def _publisher() -> None:
+        try:
+            for i in range(80):
+                monitor = DataMonitor('PING')
+                port.add_monitor(monitor)
+                port.set_rx_log_callback(_callback)
+                time.sleep(0.001)
+                port.remove_monitor(monitor)
+                with hits_lock:
+                    hits['monitor'] += monitor.matched_count
+                if i % 5 == 0:
+                    port.set_rx_log_callback(None)
+        except Exception as exc:  # pylint: disable=broad-except
+            errors.append(exc)
+
+    feeder = threading.Thread(target=_feeder)
+    publisher = threading.Thread(target=_publisher)
+    try:
+        assert port.spawn is not None
+        assert hasattr(port.spawn, '_publish_lock')
+        feeder.start()
+        publisher.start()
+        publisher.join(timeout=10)
+        stop.set()
+        feeder.join(timeout=2)
+        assert not errors, errors
+        with hits_lock:
+            assert hits['callback'] > 0
+            assert hits['monitor'] > 0
+    finally:
+        stop.set()
+        port.close()

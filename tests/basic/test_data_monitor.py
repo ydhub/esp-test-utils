@@ -172,3 +172,110 @@ def test_data_monitor_data_cache_init_thread_safe_for_same_port() -> None:
 
     assert creation_count == 1
     assert monitor.matched_count == worker_count
+
+
+def test_data_monitor_snapshot_returns_copies() -> None:
+    monitor = DataMonitor('OK')
+    monitor.append_data('uart0', 'OK')
+
+    count, ports, results = monitor.snapshot()
+    assert count == 1
+    assert ports == ['uart0']
+    assert len(results) == 1
+    assert results[0].match == 'OK'
+
+    ports.append('mutated')
+    results.append(results[0])
+    assert monitor.matched_ports == ['uart0']
+    assert len(monitor.matched_results) == 1
+
+
+def test_data_monitor_callback_does_not_block_peer_match_state_update() -> None:
+    """Peer appends may wait on _callback_lock, but must still update match state."""
+    callback_started = threading.Event()
+    peer_state_visible = threading.Event()
+
+    monitor: DataMonitor
+
+    def _callback(_matched: MatchedResult) -> None:
+        # Only the first callback probes concurrency; later ones are no-ops.
+        if callback_started.is_set():
+            return
+        callback_started.set()
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            if monitor.snapshot()[0] >= 2:
+                peer_state_visible.set()
+                return
+            time.sleep(0.005)
+
+    monitor = DataMonitor('OK', callback=_callback)
+
+    def _first_writer() -> None:
+        monitor.append_data('uart0', 'OK')
+
+    def _peer_writer() -> None:
+        assert callback_started.wait(timeout=2)
+        monitor.append_data('uart0', 'OK')
+
+    threads = [threading.Thread(target=_first_writer), threading.Thread(target=_peer_writer)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert peer_state_visible.is_set(), 'peer could not publish match state while callback ran'
+    assert monitor.snapshot()[0] == 2
+
+
+def test_data_monitor_callback_can_reenter_append_data() -> None:
+    """Same-thread reentrant append_data from a callback must not deadlock."""
+    seen = []
+
+    monitor: DataMonitor
+
+    def _callback(matched: MatchedResult) -> None:
+        assert isinstance(matched.match, re.Match)
+        seen.append(matched.match.group(0))
+        if matched.match.group(0) == 'A':
+            monitor.append_data('uart0', 'B')
+
+    monitor = DataMonitor(re.compile(r'[AB]'), callback=_callback)
+    monitor.append_data('uart0', 'A')
+
+    assert seen == ['A', 'B']
+    assert monitor.snapshot()[0] == 2
+
+
+def test_data_monitor_callbacks_serialized_across_threads() -> None:
+    active = 0
+    max_active = 0
+    state_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def _callback(_matched: MatchedResult) -> None:
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+
+    monitor = DataMonitor('OK', callback=_callback)
+
+    def _worker(port_name: str) -> None:
+        barrier.wait()
+        monitor.append_data(port_name, 'OK')
+
+    threads = [
+        threading.Thread(target=_worker, args=('uart1',)),
+        threading.Thread(target=_worker, args=('uart2',)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert monitor.snapshot()[0] == 2
+    assert max_active == 1

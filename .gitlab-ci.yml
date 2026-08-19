@@ -73,6 +73,46 @@ pytest-linux:
   tags:
     - host_test
 
+# Free-threaded (no-GIL) trial on a community image. allow_failure: official
+# library/python does not yet publish 3.14t tags; do not merge coverage here.
+pytest-linux-freethreaded:
+  stage: test
+  needs: []
+  image: tdciwasaki/python-nogil:3.14-slim-trixie
+  allow_failure: true
+  variables:
+    # Shallow MR checkouts often lack tags; isolated build env then fails
+    # setuptools-scm version inference (other jobs may hide this with older scm).
+    GIT_DEPTH: "0"
+    SETUPTOOLS_SCM_PRETEND_VERSION: "0.0.0+freethreaded.${CI_COMMIT_SHORT_SHA}"
+  before_script:
+    # slim image lacks tools required by fetch_repo / shell_port tests.
+    - apt-get update && apt-get install -y --no-install-recommends git procps && rm -rf /var/lib/apt/lists/*
+    # Interpreter itself must be free-threaded before we install anything.
+    - python -c 'import sys; gil=getattr(sys,"_is_gil_enabled",None); assert gil is not None and gil() is False, "expected free-threaded build with GIL disabled"'
+    - git fetch --tags --force || true
+    - pip install -e '.[test]'
+    # Native deps (e.g. psutil/PyYAML) may re-enable the GIL on import; fail the
+    # job if that happens so "green" does not mean we silently ran with GIL on.
+    - |
+      python -c '
+      import sys
+      import esptest
+      import psutil
+      import yaml
+      gil = getattr(sys, "_is_gil_enabled", None)
+      assert gil is not None and gil() is False, "GIL re-enabled after importing esptest/deps"
+      '
+  script:
+    - pytest --junitxml=reports/junit-freethreaded.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit-freethreaded.xml
+    expire_in: 2 days
+  tags:
+    - host_test
+
 pytest-win32:
   stage: test
   needs:
