@@ -58,12 +58,16 @@ include = ["esptest", "esptest.*"]
             "python-gitlab",
             "minio",
         ]
+        jira = [
+            "jira>=3.8.0",
+        ]
         all = [
             "pyecharts",
             "python-gitlab",
             "minio",
             "esp-idf-monitor",
             "scapy",
+            "jira>=3.8.0",
         ]
         # Test & Dev & Doc
         ci-quality = [
@@ -108,6 +112,7 @@ include = ["esptest", "esptest.*"]
         esp-copybin = "esptest.tools.copy_bin:main"
         esp-pipcheck = "esptest.tools.pip_check:main"
         esp-fetch-repo = "esptest.scripts.fetch_repo:main"
+        esp-jira-att = "esptest.scripts.jira_attachment:main"
 
     [project.urls]
         Homepage = "https://github.com/ydhub/esp-test-utils"

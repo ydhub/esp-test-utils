@@ -26,11 +26,12 @@ Core runtime dependencies
   rich               MIT
   typing_extensions  PSF-2.0
 
-Optional dependencies (extras "idfci" / "all")
+Optional dependencies (extras "idfci" / "jira" / "all")
 -----------------------------------------------
   pyecharts          MIT
   python-gitlab      LGPL-3.0-or-later
   minio              Apache-2.0
+  jira               Apache-2.0
   esp-idf-monitor    Apache-2.0
   scapy              GPL-2.0-or-later         (extras "all" only; see note below)
 

@@ -27,12 +27,16 @@ pip install "esp-test-utils[idfci]"
 
 # Everything, including esp-idf-monitor and scapy
 pip install "esp-test-utils[all]"
+
+# Jira attachment upload and download
+pip install "esp-test-utils[jira]"
 ```
 
 | Extra    | Adds                                                       |
 | -------- | ---------------------------------------------------------- |
 | `idfci`  | `pyecharts`, `python-gitlab`, `minio`                      |
-| `all`    | `idfci` packages plus `esp-idf-monitor` and `scapy`        |
+| `jira`   | `python-jira` client and `esp-jira-att`                    |
+| `all`    | All optional packages, including Jira, monitor, and scapy  |
 
 ```{note}
 **Draft Multimeter / GPIB** does not use a pip extra. Install drivers yourself:

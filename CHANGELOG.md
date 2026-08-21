@@ -1,3 +1,7 @@
+## Unreleased
+
+- feat(jira): add attachment upload, listing, and download CLI
+
 ## v0.6.3 (2026-08-19)
 
 
