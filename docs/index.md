@@ -33,6 +33,7 @@ guides/multimeter
 guides/xunit_report
 guides/firmware_packages
 guides/cli_tools
+guides/jira_attachments
 ```
 
 ## API reference

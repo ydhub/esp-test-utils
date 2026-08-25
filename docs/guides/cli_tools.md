@@ -17,6 +17,7 @@ lab automation. Run any of them with `-h`/`--help` for the full option list.
 | `esp-tempbox`    | Control a U680 temperature box over Modbus.                        |
 | `esp-fetch-repo` | Fetch/clone a git repository to a local path.                      |
 | `esp-pipcheck`   | Check installed packages against a requirements file.              |
+| `esp-jira-att`   | List, upload, and download Jira issue attachments (Jira extra).    |
 
 ## `esp-listports`
 
@@ -132,3 +133,15 @@ esp-pipcheck requirements.txt
 ```
 
 Checks that the current environment satisfies the given requirements file.
+
+## `esp-jira-att`
+
+Install `esp-test-utils[jira]` first, then use:
+
+```bash
+esp-jira-att upload TEST-123 ./test.log
+esp-jira-att list TEST-123
+esp-jira-att download TEST-123 --dest ./artifacts
+```
+
+See {doc}`jira_attachments` for authentication configuration and all options.
