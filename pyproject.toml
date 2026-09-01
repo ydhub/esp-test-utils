@@ -58,6 +58,11 @@ include = ["esptest", "esptest.*"]
             "python-gitlab",
             "minio",
         ]
+        jira = [
+            "jira>=3.2,<3.3; python_version < '3.8'",
+            "jira>=3.8,<3.10; python_version >= '3.8' and python_version < '3.10'",
+            "jira>=3.10; python_version >= '3.10'",
+        ]
         all = [
             "pyecharts",
             "python-gitlab",
@@ -108,6 +113,7 @@ include = ["esptest", "esptest.*"]
         esp-copybin = "esptest.tools.copy_bin:main"
         esp-pipcheck = "esptest.tools.pip_check:main"
         esp-fetch-repo = "esptest.scripts.fetch_repo:main"
+        esp-jira-att = "esptest.scripts.jira_attachment:main"
 
     [project.urls]
         Homepage = "https://github.com/ydhub/esp-test-utils"
