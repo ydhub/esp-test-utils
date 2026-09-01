@@ -9,10 +9,22 @@ logger = get_logger('iperf-util')
 
 
 class IperfDataParser:
+    """Parse iperf2 / iperf3 PC logs, or ESP-IDF console iperf (DUT) logs."""
+
     PC_BANDWIDTH_LOG_PATTERN = re.compile(
-        r'(\d+\.\d+)\s*-\s*(\d+.\d+)\s+sec\s+[\d.]+\s+MBytes\s+([\d.]+)\s+([MK]bits/sec)'
+        r'(\d+\.\d+)\s*-\s*(\d+\.\d+)\s+sec\s+[\d.]+\s+[KMGT]?Bytes\s+([\d.]+)\s+([KMGT]?bits/sec)'
     )
-    DUT_BANDWIDTH_LOG_PATTERN = re.compile(r'([\d.]+)-\s*([\d.]+)\s+sec\s+([\d.]+)\s+([MK]bits/sec)')
+    PC_SUM_BANDWIDTH_LOG_PATTERN = re.compile(
+        r'\[SUM\]\s+(\d+\.\d+)\s*-\s*(\d+\.\d+)\s+sec\s+[\d.]+\s+[KMGT]?Bytes\s+([\d.]+)\s+([KMGT]?bits/sec)'
+    )
+    DUT_BANDWIDTH_LOG_PATTERN = re.compile(r'([\d.]+)-\s*([\d.]+)\s+sec\s+([\d.]+)\s+([MKG]bits/sec)')
+    _BITRATE_TO_MBITS = {
+        'bits/sec': 1e-6,
+        'Kbits/sec': 0.001,
+        'Mbits/sec': 1.0,
+        'Gbits/sec': 1000.0,
+        'Tbits/sec': 1000000.0,
+    }
 
     def __init__(self, raw_data: str, transmit_time: int = 0):
         self.raw_data = raw_data
@@ -23,8 +35,17 @@ class IperfDataParser:
         self._unit = ''
         self._parse_data()
 
+    @classmethod
+    def _to_mbits(cls, throughput: float, unit: str) -> float:
+        try:
+            return throughput * cls._BITRATE_TO_MBITS[unit]
+        except KeyError as exc:
+            raise ValueError(f'Unsupported bitrate unit: {unit}') from exc
+
     def _parse_data(self) -> None:
-        match_list = list(self.PC_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
+        match_list = list(self.PC_SUM_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
+        if not match_list:
+            match_list = list(self.PC_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
         if not match_list:
             # failed to find raw data by PC pattern, it might be DUT pattern
             match_list = list(self.DUT_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
@@ -36,6 +57,9 @@ class IperfDataParser:
         for match in match_list:
             t_start = float(match.group(1))
             t_end = float(match.group(2))
+            # iperf3 server may emit a zero-duration tail interval; skip it.
+            if t_end <= t_start:
+                continue
             # ignore if report time larger than given transmit time.
             if self.transmit_time and t_end > self.transmit_time:
                 logger.debug(f'ignore iperf report {t_start} - {t_end}: {match.group(3)} {match.group(4)}')
@@ -44,9 +68,8 @@ class IperfDataParser:
             if _current_end and t_start and t_start != _current_end:
                 self.error_list.append(f'Missing iperf data from {_current_end} to {t_start}')
             _current_end = t_end
-            # get match results
-            self._unit = match.group(4)
-            throughput = float(match.group(3))
+            throughput = self._to_mbits(float(match.group(3)), match.group(4))
+            self._unit = 'Mbits/sec'
             if not _interval and len(match_list) > 1:
                 _interval = t_end - t_start
             if _interval and int(t_end - t_start) > _interval:
