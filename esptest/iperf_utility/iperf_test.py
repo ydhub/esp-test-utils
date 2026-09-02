@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional
+from typing import List, Match, Optional, Tuple
 
 from ..adapter.dut import DutBase
 from ..logger import get_logger
@@ -9,7 +9,12 @@ logger = get_logger('iperf-util')
 
 
 class IperfDataParser:
-    """Parse iperf2 / iperf3 PC logs, or ESP-IDF console iperf (DUT) logs."""
+    """Parse iperf2 / iperf3 PC logs, or ESP-IDF console iperf (DUT) logs.
+
+    ``avg`` prefers a receiver (or [SUM] receiver) summary over sender when both
+    exist. Parallel streams with a ``[SUM]`` section use SUM lines only; logs
+    without SUM emit a warning and may mix per-stream intervals.
+    """
 
     PC_BANDWIDTH_LOG_PATTERN = re.compile(
         r'(\d+\.\d+)\s*-\s*(\d+\.\d+)\s+sec\s+[\d.]+\s+[KMGT]?Bytes\s+([\d.]+)\s+([KMGT]?bits/sec)'
@@ -35,6 +40,27 @@ class IperfDataParser:
         self._unit = ''
         self._parse_data()
 
+    @staticmethod
+    def _match_line_role(raw_data: str, match: Match[str]) -> str:
+        line_end = raw_data.find('\n', match.end())
+        if line_end < 0:
+            line = raw_data[match.start() :]
+        else:
+            line = raw_data[match.start() : line_end]
+        if re.search(r'\breceiver\b', line):
+            return 'receiver'
+        if re.search(r'\bsender\b', line):
+            return 'sender'
+        return ''
+
+    @staticmethod
+    def _avg_from_summaries(summaries: List[Tuple[str, float]]) -> float:
+        # Prefer receiver so avg does not depend on sender/receiver print order.
+        receivers = [throughput for role, throughput in summaries if role == 'receiver']
+        if receivers:
+            return receivers[-1]
+        return summaries[-1][1]
+
     @classmethod
     def _to_mbits(cls, throughput: float, unit: str) -> float:
         try:
@@ -43,7 +69,10 @@ class IperfDataParser:
             raise ValueError(f'Unsupported bitrate unit: {unit}') from exc
 
     def _parse_data(self) -> None:
+        used_sum = False
         match_list = list(self.PC_SUM_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
+        if match_list:
+            used_sum = True
         if not match_list:
             match_list = list(self.PC_BANDWIDTH_LOG_PATTERN.finditer(self.raw_data))
         if not match_list:
@@ -54,6 +83,9 @@ class IperfDataParser:
 
         _current_end = 0.0
         _interval: float = 0
+        summaries: List[Tuple[str, float]] = []
+        seen_intervals: List[Tuple[float, float]] = []
+        warned_multi_stream = False
         for match in match_list:
             t_start = float(match.group(1))
             t_end = float(match.group(2))
@@ -73,13 +105,22 @@ class IperfDataParser:
             if not _interval and len(match_list) > 1:
                 _interval = t_end - t_start
             if _interval and int(t_end - t_start) > _interval:
-                # this could be the summary, got average throughput
-                self._avg_throughput = throughput
+                summaries.append((self._match_line_role(self.raw_data, match), throughput))
                 continue
+            if not used_sum:
+                interval_key = (t_start, t_end)
+                if interval_key in seen_intervals and not warned_multi_stream:
+                    logger.warning(
+                        'Multiple iperf streams without [SUM] lines; throughput_list may mix per-stream values'
+                    )
+                    warned_multi_stream = True
+                seen_intervals.append(interval_key)
             if throughput == 0.00:
                 self.error_list.append(f'Throughput drop to 0 at {t_start}-{t_end}')
                 # still put it into list though throughput is zero
             self._throughput_list.append(throughput)
+        if summaries:
+            self._avg_throughput = self._avg_from_summaries(summaries)
 
     @property
     def avg(self) -> float:

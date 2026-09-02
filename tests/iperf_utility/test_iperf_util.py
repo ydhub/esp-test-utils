@@ -106,6 +106,33 @@ def test_parse_iperf3_keeps_receiver_summary() -> None:
     assert parser.throughput_list == [70800.0, 70400.0, 70600.0]
 
 
+def test_parse_iperf3_prefers_receiver_when_sender_is_last() -> None:
+    log = (
+        '[ ID] Interval           Transfer     Bitrate\n'
+        '[  5]   0.00-1.00   sec  8.25 GBytes  70.8 Gbits/sec\n'
+        '[  5]   1.00-2.00   sec  8.20 GBytes  70.4 Gbits/sec\n'
+        '[  5]   0.00-2.00   sec  16.4 GBytes  70.3 Gbits/sec                  receiver\n'
+        '[  5]   0.00-2.00   sec  16.5 GBytes  70.6 Gbits/sec    0             sender\n'
+    )
+    parser = IperfDataParser(log)
+    assert parser.avg == 70300.0
+    assert parser.throughput_list == [70800.0, 70400.0]
+
+
+def test_parse_parallel_streams_without_sum_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    log = (
+        '[ ID] Interval           Transfer     Bitrate\n'
+        '[  5]   0.00-1.00   sec  4.12 GBytes  35.4 Gbits/sec\n'
+        '[  7]   0.00-1.00   sec  4.13 GBytes  35.5 Gbits/sec\n'
+        '[  5]   1.00-2.00   sec  4.10 GBytes  35.2 Gbits/sec\n'
+        '[  7]   1.00-2.00   sec  4.10 GBytes  35.2 Gbits/sec\n'
+    )
+    with caplog.at_level('WARNING', logger='esptest.iperf-util'):
+        parser = IperfDataParser(log)
+    assert any('[SUM]' in rec.getMessage() for rec in caplog.records)
+    assert len(parser.throughput_list) == 4
+
+
 def test_parse_iperf3_parallel_streams_uses_sum_only() -> None:
     parser = IperfDataParser(_read_iperf_log('pc_iperf3_tcp_p2.log'))
     assert parser.unit == 'Mbits/sec'
