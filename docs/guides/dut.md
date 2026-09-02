@@ -85,6 +85,13 @@ policy lives in {class}`~esptest.adapter.port.port_log.PortLogWriter`;
 The last row is the usual DUT case: a fragment that arrives right after a
 full line is held until idle, then appended **without** a new timestamp.
 
+{class}`~esptest.adapter.port.port_log.PortLogWriter` accepts a
+{class}`~esptest.adapter.port.port_log.PortLogFormatter`. The default is
+timestamped text. {class}`~esptest.adapter.port.port_log.RawLogFormatter`
+and {class}`~esptest.adapter.port.port_log.HtmlLogFormatter` are ready for a
+later parallel `.raw` / `.html` file; `PortSpawn` still writes only the
+timestamped `log_file`.
+
 ## Configuring a DUT with `DutConfig`
 
 `DutConfig` is a dataclass describing how the DUT should be created. Commonly
