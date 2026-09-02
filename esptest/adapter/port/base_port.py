@@ -12,13 +12,14 @@ from typing import overload
 
 import esptest.common.compat_typing as t
 
-from ...common import timestamp_str, to_bytes, to_str
+from ...common import to_bytes, to_str
 from ...common.data_monitor import DataMonitor
 from ...common.decorators import deprecated
 from ...config.global_config import g
 from ...interface.port import PortInterface
 from ...logger import get_logger
 from .data_monitor_mixin import DataMonitorMixin
+from .port_log import IDLE_TIMEOUT_MULTIPLIER, PortLogWriter
 
 if sys.platform == 'win32':
     import pexpect
@@ -134,8 +135,7 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         self.log_file = log_file
 
         self._data_cache = b''
-        self._line_cache = b''
-        self._last_write_log_time = time.time()
+        self._port_log = PortLogWriter(idle_timeout=self.DEFAULT_READ_INTERVAL * IDLE_TIMEOUT_MULTIPLIER)
         # Create a new thread to read data from serial port
         self._read_queue: queue.Queue = queue.Queue()
         self._read_thread_stop_event = threading.Event()
@@ -203,33 +203,16 @@ class PortSpawn(SpawnBase, t.Generic[T]):
         return bool(self._data_cache or self.buffer or not self._read_queue.empty())
 
     def _write_port_log(self, data: bytes) -> None:
-        """Write serial outputs to log file"""
-        data_to_write = b''
-        if data:
-            self._line_cache += data
-            if self._line_cache.endswith(b'\n'):
-                data_to_write = self._line_cache
-                self._line_cache = b''
-            elif b'\n' in self._line_cache:
-                _index = self._line_cache.rfind(b'\n') + 1
-                data_to_write = self._line_cache[:_index]
-                self._line_cache = self._line_cache[_index:]
-        if not data_to_write and self._line_cache and time.time() - self._last_write_log_time > self.read_timeout * 5:
-            # No new data for a long time, flush line cache
-            # Default timeout is serial.timeout * 5, depends on read timeout of serial instance
-            # Minimum serial timeout is 1ms, 5 ms should be enough for most lines.
-            data_to_write = self._line_cache
-            self._line_cache = b''
-
-        if data_to_write:
-            self._last_write_log_time = time.time()
-            if self.log_file:
-                with open(self.log_file, 'ab+') as f:
-                    _time_info = f'\n[{timestamp_str()}]\n'.encode()
-                    f.write(_time_info)
-                    f.write(data_to_write)
-            else:
-                self.logger.debug(f'[{self.name}]: {to_str(data_to_write)}')
+        """Write serial outputs to log file via :class:`PortLogWriter`."""
+        self._port_log.idle_timeout = self.read_timeout * IDLE_TIMEOUT_MULTIPLIER
+        chunk = self._port_log.feed(data)
+        if not chunk:
+            return
+        if self.log_file:
+            with open(self.log_file, 'ab+') as f:
+                f.write(chunk)
+        else:
+            self.logger.debug(f'[{self.name}]: {to_str(chunk)}')
 
     def _try_reconnect_after_error(self, err: Exception) -> bool:
         if self._serial_error_reconnect_count_left <= 0:
@@ -361,7 +344,7 @@ class PortSpawn(SpawnBase, t.Generic[T]):
             self._rx_log_callback = None
             self._monitors = []
         self._data_cache = b''
-        self._line_cache = b''
+        self._port_log.reset()
 
 
 def handle_expect_timeout(func: t.Callable) -> t.Callable:

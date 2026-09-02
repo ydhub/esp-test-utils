@@ -172,6 +172,93 @@ def test_base_port_change_serial_config_not_available() -> None:
         port.close()
 
 
+def _stop_read_thread(spawn) -> None:  # type: ignore
+    spawn._read_thread_stop_event.set()  # pylint: disable=protected-access
+    spawn._read_thread.join()  # pylint: disable=protected-access
+
+
+def _mark_idle(spawn) -> None:  # type: ignore
+    spawn._port_log._last_write_log_time = time.time() - 1  # pylint: disable=protected-access
+
+
+def _read_log(log_file: str) -> bytes:
+    with open(log_file, 'rb') as f:
+        return f.read()
+
+
+def test_port_log_file_idle_fragment_joins_following_bytes(tmp_path) -> None:  # type: ignore
+    """DUT log file: after a long gap, aaa then soon bbb\\n stay in one [ts] block."""
+    raw_port = MockRawPort()
+    log_file = str(tmp_path / 'port.log')
+    port = BasePort(raw_port, name='log_idle_join', log_file=log_file)
+    spawn = port.spawn
+    assert spawn is not None
+    try:
+        _stop_read_thread(spawn)
+        spawn._write_port_log(b'data\n')  # pylint: disable=protected-access
+        _mark_idle(spawn)
+        spawn._write_port_log(b'')  # pylint: disable=protected-access
+        spawn._write_port_log(b'aaa')  # pylint: disable=protected-access
+        assert _read_log(log_file).endswith(b'aaa')
+        spawn._write_port_log(b'bbb\n')  # pylint: disable=protected-access
+        data = _read_log(log_file)
+        assert data.endswith(b'aaabbb\n')
+        assert data.count(b'\n[') == 2
+    finally:
+        port.close()
+
+
+def test_port_log_file_idle_between_fragments_starts_new_timestamp(tmp_path) -> None:  # type: ignore
+    """DUT log file: idle after aaa, then bbb\\n gets a new timestamp."""
+    raw_port = MockRawPort()
+    log_file = str(tmp_path / 'port.log')
+    port = BasePort(raw_port, name='log_idle_split', log_file=log_file)
+    spawn = port.spawn
+    assert spawn is not None
+    try:
+        _stop_read_thread(spawn)
+        spawn._write_port_log(b'data\n')  # pylint: disable=protected-access
+        _mark_idle(spawn)
+        spawn._write_port_log(b'')  # pylint: disable=protected-access
+        spawn._write_port_log(b'aaa')  # pylint: disable=protected-access
+        _mark_idle(spawn)
+        spawn._write_port_log(b'')  # pylint: disable=protected-access
+        spawn._write_port_log(b'bbb\n')  # pylint: disable=protected-access
+        data = _read_log(log_file)
+        assert b'aaabbb' not in data
+        assert b'aaa\n[' in data
+        assert data.endswith(b'bbb\n')
+        assert data.count(b'\n[') == 3
+    finally:
+        port.close()
+
+
+def test_port_log_file_contiguous_fragment_stays_in_same_block(tmp_path) -> None:  # type: ignore
+    """DUT log file: fragment right after a full line is held, then flushed without a new [ts]."""
+    raw_port = MockRawPort()
+    log_file = str(tmp_path / 'port.log')
+    port = BasePort(raw_port, name='log_same_block', log_file=log_file)
+    spawn = port.spawn
+    assert spawn is not None
+    try:
+        _stop_read_thread(spawn)
+        spawn._write_port_log(b'data\n')  # pylint: disable=protected-access
+        spawn._write_port_log(b'aaa')  # pylint: disable=protected-access
+        assert b'aaa' not in _read_log(log_file)
+        _mark_idle(spawn)
+        spawn._write_port_log(b'')  # pylint: disable=protected-access
+        data = _read_log(log_file)
+        assert data.endswith(b'data\naaa')
+        assert data.count(b'\n[') == 1
+        spawn._write_port_log(b'bbb\n')  # pylint: disable=protected-access
+        data = _read_log(log_file)
+        assert b'data\naaa\n[' in data
+        assert data.endswith(b'bbb\n')
+        assert data.count(b'\n[') == 2
+    finally:
+        port.close()
+
+
 def test_base_port_write_expect_raise_when_redirect_thread_stopped() -> None:
     raw_port = MockRawPort()
     port = BasePort(raw_port, name='stopped_port')

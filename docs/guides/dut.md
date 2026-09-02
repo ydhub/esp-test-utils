@@ -63,6 +63,35 @@ cache = dut.data_cache         # current cache without flushing
 If `expect` does not find the pattern within `timeout` seconds it raises
 `TimeoutError`.
 
+## Log file timestamps
+
+Received bytes are mirrored to `log_file`. Complete lines (ending in `\n`)
+are written immediately. Incomplete fragments are cached and flushed after
+`read_timeout * 5` of silence (pyserial `timeout`, typically 50 ms when
+`timeout=0.01`).
+
+Each **timestamp block** is a `\n[<ISO time>]\n` header followed by one or
+more payloads. A long silence **closes** the current block. Bytes that arrive
+together (no idle gap) stay in the same block, even across a `\n`. The
+policy lives in {class}`~esptest.adapter.port.port_log.PortLogWriter`;
+`PortSpawn` only feeds received bytes and writes the returned chunk.
+
+| Sequence | Log file |
+| -------- | -------- |
+| idle, then `aaa`, then soon `bbb\n` | `[ts] aaabbb\n` |
+| idle, then `aaa`, idle, then `bbb\n` | `[ts] aaa\n[ts] bbb\n` |
+| `data\n`, then soon `aaa`, idle, then `bbb\n` | `[ts] data\naaa\n[ts] bbb\n` |
+
+The last row is the usual DUT case: a fragment that arrives right after a
+full line is held until idle, then appended **without** a new timestamp.
+
+{class}`~esptest.adapter.port.port_log.PortLogWriter` accepts a
+{class}`~esptest.adapter.port.port_log.PortLogFormatter`. The default is
+timestamped text. {class}`~esptest.adapter.port.port_log.RawLogFormatter`
+and {class}`~esptest.adapter.port.port_log.HtmlLogFormatter` are ready for a
+later parallel `.raw` / `.html` file; `PortSpawn` still writes only the
+timestamped `log_file`.
+
 ## Configuring a DUT with `DutConfig`
 
 `DutConfig` is a dataclass describing how the DUT should be created. Commonly
@@ -77,7 +106,7 @@ used fields:
 | `bin_path`        | Firmware path (standard / raw / merged); see {doc}`firmware_packages` |
 | `download_device` | Flash/download UART (defaults to `device` if unset)                  |
 | `support_esptool` | Enable esptool-backed `hard_reset` / `download_bin` / `get_chip_info`|
-| `log_file`        | Log file path (auto-generated under `log_path` if empty)             |
+| `log_file`        | Log file path (auto-generated under `log_path` if empty); see [Log file timestamps](#log-file-timestamps) |
 | `monitors`        | List of `DataMonitor` objects attached to the port                   |
 | `pexpect_timeout` | Default timeout for `expect`                                         |
 

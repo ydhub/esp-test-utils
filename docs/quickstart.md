@@ -57,7 +57,9 @@ Key points:
 - Passing a `str` regex/text to `expect` waits for that text and returns
   `None`; passing a compiled `re.Pattern` returns the `re.Match` object.
 - All received data is mirrored to the log file you pass as the third
-  argument.
+  argument. Incomplete lines are cached and flushed after a short idle
+  gap; timestamps mark bursts of output, not every fragment. See
+  {doc}`guides/dut` (Log file timestamps).
 
 ## Where to go next
 
