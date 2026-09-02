@@ -1,0 +1,18 @@
+Connecting to host 127.0.0.1, port 5201
+[  5] local 127.0.0.1 port 54322 connected to 127.0.0.1 port 5201
+[  7] local 127.0.0.1 port 54323 connected to 127.0.0.1 port 5201
+[ ID] Interval           Transfer     Bitrate         Retr  Cwnd
+[  5]   0.00-1.00   sec  4.12 GBytes  35.4 Gbits/sec    0   1.50 MBytes
+[  7]   0.00-1.00   sec  4.13 GBytes  35.5 Gbits/sec    0   1.50 MBytes
+[SUM]   0.00-1.00   sec  8.25 GBytes  70.9 Gbits/sec    0
+[  5]   1.00-2.00   sec  4.10 GBytes  35.2 Gbits/sec    0   1.50 MBytes
+[  7]   1.00-2.00   sec  4.10 GBytes  35.2 Gbits/sec    0   1.50 MBytes
+[SUM]   1.00-2.00   sec  8.20 GBytes  70.4 Gbits/sec    0
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-2.00   sec  8.22 GBytes  35.3 Gbits/sec    0             sender
+[  7]   0.00-2.00   sec  8.23 GBytes  35.4 Gbits/sec    0             sender
+[SUM]   0.00-2.00   sec  16.5 GBytes  70.7 Gbits/sec    0             sender
+[  5]   0.00-2.00   sec  8.21 GBytes  35.3 Gbits/sec                  receiver
+[  7]   0.00-2.00   sec  8.22 GBytes  35.3 Gbits/sec                  receiver
+[SUM]   0.00-2.00   sec  16.4 GBytes  70.6 Gbits/sec                  receiver
