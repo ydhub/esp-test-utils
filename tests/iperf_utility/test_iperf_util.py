@@ -71,7 +71,9 @@ def test_parse_iperf3_tcp_gbits_converts_and_skips_zero_interval() -> None:
     parser = IperfDataParser(_read_iperf_log('pc_iperf3_tcp_gbits.log'))
     assert parser.unit == 'Mbits/sec'
     assert parser.max == 70800.0
+    assert parser.min == 70400.0
     assert parser.avg == 70600.0
+    # iperf3 3.00-3.00 sec zero-duration tail (17.3 Gbits/sec) is skipped
     assert parser.throughput_list == [70800.0, 70400.0, 70600.0]
 
 
