@@ -8,7 +8,6 @@ import yaml
 
 import esptest.common.compat_typing as t
 
-DEFAULT_JIRA_URL = 'https://jira.espressif.com:8443'
 DEFAULT_TIMEOUT = 1200
 ACCOUNT_CONFIG_FILES = (
     lambda: os.getenv('BOT_JIRA_ACCOUNT_FILE_PATH', ''),
@@ -29,34 +28,52 @@ def _read_config_file(path: str) -> t.Dict[str, str]:
     return {str(key): str(value) for key, value in config.items() if value is not None}
 
 
-def get_config() -> t.Dict[str, str]:
-    """Return Jira credentials from CI, local environment variables, or account files."""
+def _url_from_env() -> str:
+    """Return Jira URL from environment variables. CI_JIRA_URL takes precedence."""
+    url = os.getenv('CI_JIRA_URL') or os.getenv('JIRA_URL')
+    if url:
+        return url
+    raise RuntimeError('Jira URL is not configured. Set CI_JIRA_URL or JIRA_URL.')
+
+
+def _apply_url(config: t.Dict[str, str], jira_url: t.Optional[str]) -> t.Dict[str, str]:
+    if jira_url:
+        config['url'] = jira_url
+        return config
+    if not config.get('url'):
+        config['url'] = _url_from_env()
+    return config
+
+
+def get_config(jira_url: t.Optional[str] = None) -> t.Dict[str, str]:
+    """Return Jira credentials from CI, local environment variables, or account files.
+
+    Pass ``jira_url`` when the caller already has a server URL (for example
+    ``create_client(server=...)`` / ``esp-jira-att --server``). That value wins
+    over environment variables and account-file ``url``.
+    """
     token = os.getenv('CI_JIRA_TOKEN')
     username = os.getenv('CI_JIRA_USERNAME')
     password = os.getenv('CI_JIRA_PASSWORD')
-    url = os.getenv('CI_JIRA_URL', DEFAULT_JIRA_URL)
 
     if token:
-        return {'url': url, 'token': token}
+        return _apply_url({'token': token}, jira_url)
     if username and password:
-        return {'url': url, 'username': username, 'password': password}
+        return _apply_url({'username': username, 'password': password}, jira_url)
 
     token = os.getenv('JIRA_TOKEN')
     username = os.getenv('JIRA_USERNAME')
     password = os.getenv('JIRA_PASSWORD')
-    url = os.getenv('JIRA_URL', DEFAULT_JIRA_URL)
 
     if token:
-        return {'url': url, 'token': token}
+        return _apply_url({'token': token}, jira_url)
     if username and password:
-        return {'url': url, 'username': username, 'password': password}
+        return _apply_url({'username': username, 'password': password}, jira_url)
 
     for candidate_factory in ACCOUNT_CONFIG_FILES:
         path = candidate_factory()
         if path and os.path.isfile(path):
-            config = _read_config_file(path)
-            config.setdefault('url', DEFAULT_JIRA_URL)
-            return config
+            return _apply_url(_read_config_file(path), jira_url)
 
     raise RuntimeError(
         'Jira credentials are not configured. Set CI_JIRA_TOKEN, JIRA_TOKEN, '
@@ -80,10 +97,12 @@ def create_client(
     timeout: int = DEFAULT_TIMEOUT,
 ) -> t.Any:
     """Create a python-jira client, allowing CLI overrides for server and token."""
-    config = {}
+    config: t.Dict[str, str] = {}
     if not server or not token:
-        config = get_config()
-    server = server or config['url']
+        config = get_config(jira_url=server)
+    server = server or config.get('url')
+    if not server:
+        raise RuntimeError('Jira URL is not configured. Set CI_JIRA_URL or JIRA_URL.')
     token = token or config.get('token')
     jira_class = get_jira_class()
 
