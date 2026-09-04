@@ -1,3 +1,13 @@
+## v0.6.4 (2026-09-04)
+
+
+- fix(jira): require Jira URL from environment variables (b6d16d2)
+- feat(adapter): add raw/html PortLog formatters and restore file tests (6dac20c)
+- fix(adapter): extract PortLogWriter for timestamped serial logs (d072561)
+- fix(iperf): pick receiver summary for avg regardless of line order (2ebf4b6)
+- feat(iperf): parse iperf3 units and parallel SUM streams (e4bfd4e)
+- feat(jira): add attachment management CLI (d06ebd8)
+
 ## v0.6.3 (2026-08-19)
 
 
