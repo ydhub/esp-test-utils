@@ -1,8 +1,11 @@
+import hashlib
 import json
 import logging
 import os
 import shutil
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +16,7 @@ from packaging.version import Version
 
 import esptest.utility.parse_bin_path as parse_bin_path_module
 from esptest.all import DutConfig
-from esptest.common.compat_typing import Generator, List, Tuple
+from esptest.common.compat_typing import Any, Generator, List, Tuple
 from esptest.utility.merged_bin import probe_merged_bin
 from esptest.utility.parse_bin_path import (
     ParseBinPath,
@@ -828,6 +831,59 @@ def test_dump_nvs_args(test_bin_path: Path, tmp_path: Path) -> None:
         '--no-stub',
     ]
     assert args[7:11] == ['read_flash', '0x9000', str(24 * 1024), str(out)]
+
+
+def test_stable_path_hash_is_sha256_hex() -> None:
+    """Temp extract dirs must not use salted builtin hash(bin_path)."""
+    path = '/NFS/test_bin/app.zip'
+    assert parse_bin_path_module._stable_path_hash(path) == hashlib.sha256(path.encode('utf-8')).hexdigest()
+    assert parse_bin_path_module._stable_path_hash(path) == parse_bin_path_module._stable_path_hash(path)
+
+
+def test_zip_extract_skips_when_already_complete(tmp_path: Path) -> None:
+    zip_path = str(TEST_FILE_PATH / 'test-bin.zip')
+    resolve = bin_path_to_dir_or_bin.__wrapped__
+    with patch.object(parse_bin_path_module, '_tmp_dir', return_value=str(tmp_path)):
+        first = resolve(zip_path, False, False, False)
+        orig_extractall = zipfile.ZipFile.extractall
+        calls = []
+
+        def _counting_extractall(self: zipfile.ZipFile, *args: Any, **kwargs: Any) -> None:
+            calls.append(1)
+            orig_extractall(self, *args, **kwargs)
+
+        with patch.object(zipfile.ZipFile, 'extractall', _counting_extractall):
+            second = resolve(zip_path, False, False, False)
+    assert Path(first) == Path(second)
+    assert (Path(first) / 'bootloader').is_dir()
+    assert not calls
+
+
+def test_concurrent_zip_extract_same_archive(tmp_path: Path) -> None:
+    """Same zip + shared tmp dir must not FileExistsError on mkdir(bootloader)."""
+    zip_path = str(TEST_FILE_PATH / 'test-bin.zip')
+    resolve = bin_path_to_dir_or_bin.__wrapped__
+    orig_extractall = zipfile.ZipFile.extractall
+    extract_calls = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def _gated_extractall(self: zipfile.ZipFile, *args: Any, **kwargs: Any) -> None:
+        extract_calls.append(1)
+        started.set()
+        release.wait(timeout=5)
+        orig_extractall(self, *args, **kwargs)
+
+    with patch.object(parse_bin_path_module, '_tmp_dir', return_value=str(tmp_path)):
+        with patch.object(zipfile.ZipFile, 'extractall', _gated_extractall):
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [pool.submit(resolve, zip_path, False, False, False) for _ in range(8)]
+                assert started.wait(timeout=5)
+                release.set()
+                results = [fut.result() for fut in futures]
+    assert len(extract_calls) == 1
+    assert len(set(results)) == 1
+    assert (Path(results[0]) / 'bootloader').is_dir()
 
 
 if __name__ == '__main__':

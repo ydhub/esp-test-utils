@@ -37,7 +37,8 @@ esp-downbin ./build -p ttyUSB0
 ```
 
 Zip archives and `http(s)` URLs that unpack to this layout work the same way
-via `bin_path_to_dir` / `ParseBinPath`. HTTP autoindex directory URLs (Apache /
+via `bin_path_to_dir` / `ParseBinPath`. Same path is serialized under a lock;
+temp dirs use SHA-256 of the path string. HTTP autoindex directory URLs (Apache /
 nginx style listings) are fetched by `download_dir` into a temporary directory,
 then handled like a local package. ``.bin`` / ``.zip`` URLs use `download_file`.
 Both share the same single-file fetch helper. Folder downloads show a
