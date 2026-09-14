@@ -2,12 +2,12 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
 import time
 import zipfile
-from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
@@ -34,8 +34,7 @@ from .raw_flash import (  # pylint: disable=relative-beyond-top-level
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
 DEFAULT_GEN_PART_TOOL = os.path.join(os.path.dirname(__file__), 'gen_esp32part.py')
-_PATH_LOCKS_GUARD = threading.Lock()
-_PATH_LOCKS: t.Dict[str, threading.Lock] = {}
+_BIN_PATH_LOCK = threading.Lock()
 
 
 @lru_cache()
@@ -46,20 +45,6 @@ def _tmp_dir() -> str:
 def _stable_path_hash(bin_path: str) -> str:
     """Process-stable digest of *bin_path* (builtin ``hash()`` is salted)."""
     return hashlib.sha256(bin_path.encode('utf-8')).hexdigest()
-
-
-@contextmanager
-def _path_lock(key: str) -> t.Iterator[None]:
-    with _PATH_LOCKS_GUARD:
-        lock = _PATH_LOCKS.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _PATH_LOCKS[key] = lock
-    lock.acquire()
-    try:
-        yield
-    finally:
-        lock.release()
 
 
 def _path_basename(bin_path: str) -> str:
@@ -91,8 +76,8 @@ def bin_path_to_dir_or_bin(
     http(s) URLs are treated as autoindex directories and fetched via
     ``download_dir`` (full tree, no whitelist).
 
-    Same *bin_path* is serialized under a lock. Temp subdirs use SHA-256 of the
-    path string (builtin ``hash()`` is salted).
+    Resolves are serialized under one process lock. Temp subdirs use SHA-256 of
+    the path string (builtin ``hash()`` is salted).
 
     - ``allow_merged=True``: keep a ``.bin`` file path; with ``check_valid`` it
       must pass merged-bin probing. Directories may also resolve via a single
@@ -111,7 +96,7 @@ def bin_path_to_dir_or_bin(
     bin_hash = _stable_path_hash(bin_path)
     bin_base_name = _path_basename(bin_path) or 'download'
 
-    with _path_lock(bin_hash):
+    with _BIN_PATH_LOCK:
         if bin_path.startswith('http://') or bin_path.startswith('https://'):
             new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
             os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
@@ -140,8 +125,13 @@ def bin_path_to_dir_or_bin(
             new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
             os.makedirs(new_bin_path, exist_ok=True)
             if not os.listdir(new_bin_path):
-                with zipfile.ZipFile(bin_path, 'r') as zip_ref:
-                    zip_ref.extractall(new_bin_path)
+                try:
+                    with zipfile.ZipFile(bin_path, 'r') as zip_ref:
+                        zip_ref.extractall(new_bin_path)
+                except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                    # Partial extract leaves a non-empty dir; skip-if-nonempty would stick.
+                    shutil.rmtree(new_bin_path, ignore_errors=True)
+                    raise
             bin_path = new_bin_path
 
         if not os.path.isdir(bin_path):

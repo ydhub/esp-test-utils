@@ -859,6 +859,28 @@ def test_zip_extract_skips_when_already_complete(tmp_path: Path) -> None:
     assert not calls
 
 
+def test_zip_extract_retries_after_failed_extractall(tmp_path: Path) -> None:
+    zip_path = str(TEST_FILE_PATH / 'test-bin.zip')
+    resolve = bin_path_to_dir_or_bin.__wrapped__
+    dests = []
+
+    def _fail_extractall(self: zipfile.ZipFile, path: Any = None, *args: Any, **kwargs: Any) -> None:
+        dests.append(path)
+        os.makedirs(str(path), exist_ok=True)
+        with open(os.path.join(str(path), 'partial.bin'), 'wb') as f:
+            f.write(b'x')
+        raise OSError('extract failed')
+
+    with patch.object(parse_bin_path_module, '_tmp_dir', return_value=str(tmp_path)):
+        with patch.object(zipfile.ZipFile, 'extractall', _fail_extractall):
+            with pytest.raises(OSError, match='extract failed'):
+                resolve(zip_path, False, False, False)
+        assert dests
+        assert not os.path.isdir(str(dests[0]))
+        resolved = resolve(zip_path, False, False, False)
+    assert (Path(resolved) / 'bootloader').is_dir()
+
+
 def test_concurrent_zip_extract_same_archive(tmp_path: Path) -> None:
     """Same zip + shared tmp dir must not FileExistsError on mkdir(bootloader)."""
     zip_path = str(TEST_FILE_PATH / 'test-bin.zip')
