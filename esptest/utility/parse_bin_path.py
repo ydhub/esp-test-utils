@@ -1,8 +1,11 @@
+import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import zipfile
 from functools import lru_cache
@@ -31,11 +34,17 @@ from .raw_flash import (  # pylint: disable=relative-beyond-top-level
 IDF_PATH = os.getenv('IDF_PATH', '')
 logger = logging.getLogger('parse_bin_path')
 DEFAULT_GEN_PART_TOOL = os.path.join(os.path.dirname(__file__), 'gen_esp32part.py')
+_BIN_PATH_LOCK = threading.Lock()
 
 
 @lru_cache()
 def _tmp_dir() -> str:
     return tempfile.mkdtemp()
+
+
+def _stable_path_hash(bin_path: str) -> str:
+    """Process-stable digest of *bin_path* (builtin ``hash()`` is salted)."""
+    return hashlib.sha256(bin_path.encode('utf-8')).hexdigest()
 
 
 def _path_basename(bin_path: str) -> str:
@@ -67,6 +76,9 @@ def bin_path_to_dir_or_bin(
     http(s) URLs are treated as autoindex directories and fetched via
     ``download_dir`` (full tree, no whitelist).
 
+    Resolves are serialized under one process lock. Temp subdirs use SHA-256 of
+    the path string (builtin ``hash()`` is salted).
+
     - ``allow_merged=True``: keep a ``.bin`` file path; with ``check_valid`` it
       must pass merged-bin probing. Directories may also resolve via a single
       merged ``.bin`` when no standard/raw package is present.
@@ -81,65 +93,72 @@ def bin_path_to_dir_or_bin(
     if allow_merged and allow_raw:
         raise ValueError('allow_merged and allow_raw are mutually exclusive')
 
-    bin_hash = hash(bin_path)
+    bin_hash = _stable_path_hash(bin_path)
     bin_base_name = _path_basename(bin_path) or 'download'
 
-    if bin_path.startswith('http://') or bin_path.startswith('https://'):
-        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
-        os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
-        if _is_bin_ref(bin_path) or _is_zip_ref(bin_path):
-            download_file(bin_path, new_bin_path)
-        else:
-            download_dir(bin_path, new_bin_path)
-        bin_path = new_bin_path
+    with _BIN_PATH_LOCK:
+        if bin_path.startswith('http://') or bin_path.startswith('https://'):
+            new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', bin_base_name)
+            os.makedirs(os.path.dirname(new_bin_path), exist_ok=True)
+            if _is_bin_ref(bin_path) or _is_zip_ref(bin_path):
+                download_file(bin_path, new_bin_path)
+            else:
+                download_dir(bin_path, new_bin_path)
+            bin_path = new_bin_path
 
-    if _is_bin_ref(bin_path) and os.path.isfile(bin_path):
-        if not allow_merged and not allow_raw:
-            raise ValueError(f'merged .bin not allowed without allow_merged=True: {bin_path}')
-        resolved = os.path.realpath(bin_path)
-        if check_valid and allow_merged:
-            probe_merged_bin(Path(resolved))
-        return resolved
+        if _is_bin_ref(bin_path) and os.path.isfile(bin_path):
+            if not allow_merged and not allow_raw:
+                raise ValueError(f'merged .bin not allowed without allow_merged=True: {bin_path}')
+            resolved = os.path.realpath(bin_path)
+            if check_valid and allow_merged:
+                probe_merged_bin(Path(resolved))
+            return resolved
 
-    if _is_zip_ref(bin_path):
-        logger.info(f'bin path {bin_path} is not a directory, trying to convert to directory')
-        local_base = os.path.basename(bin_path)
-        if hasattr(local_base, 'removesuffix'):
-            _bin_name = local_base.removesuffix('.zip')
-        else:
-            # python < 3.9 does not support removesuffix
-            _bin_name = local_base[:-4] if local_base.lower().endswith('.zip') else local_base
-        new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
-        os.makedirs(new_bin_path, exist_ok=True)
-        with zipfile.ZipFile(bin_path, 'r') as zip_ref:
-            zip_ref.extractall(new_bin_path)
-        bin_path = new_bin_path
+        if _is_zip_ref(bin_path):
+            logger.info(f'bin path {bin_path} is not a directory, trying to convert to directory')
+            local_base = os.path.basename(bin_path)
+            if hasattr(local_base, 'removesuffix'):
+                _bin_name = local_base.removesuffix('.zip')
+            else:
+                # python < 3.9 does not support removesuffix
+                _bin_name = local_base[:-4] if local_base.lower().endswith('.zip') else local_base
+            new_bin_path = os.path.join(_tmp_dir(), f'{bin_hash}', _bin_name)
+            os.makedirs(new_bin_path, exist_ok=True)
+            if not os.listdir(new_bin_path):
+                try:
+                    with zipfile.ZipFile(bin_path, 'r') as zip_ref:
+                        zip_ref.extractall(new_bin_path)
+                except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                    # Partial extract leaves a non-empty dir; skip-if-nonempty would stick.
+                    shutil.rmtree(new_bin_path, ignore_errors=True)
+                    raise
+            bin_path = new_bin_path
 
-    if not os.path.isdir(bin_path):
-        raise ValueError(f'bin_path is not a directory or supported archive/bin: {bin_path}')
+        if not os.path.isdir(bin_path):
+            raise ValueError(f'bin_path is not a directory or supported archive/bin: {bin_path}')
 
-    bin_path = os.path.realpath(bin_path)
-    if check_valid:
-        root = Path(bin_path)
-        if allow_raw:
-            if not is_raw_bin_dir(root):
-                raise ValueError(f'not a raw bin package directory: {bin_path}')
-            load_raw_flash(root)
-            return bin_path
-        if is_standard_bin_dir(root):
-            return bin_path
-        if is_raw_bin_dir(root):
-            load_raw_flash(root)
-            return bin_path
-        if allow_merged:
-            # Ensure the directory contains exactly one valid merged bin.
-            find_merged_bin_in_dir(root)
-            return bin_path
-        if 'partition_table' not in os.listdir(bin_path):
-            raise ValueError(f'Can not find partition_table from bin_path: {bin_path}')
-    elif not is_raw_bin_dir(Path(bin_path)) and 'partition_table' not in os.listdir(bin_path):
-        logger.warning('Can not find partition_table from bin_path, maybe invalid!')
-    return bin_path
+        bin_path = os.path.realpath(bin_path)
+        if check_valid:
+            root = Path(bin_path)
+            if allow_raw:
+                if not is_raw_bin_dir(root):
+                    raise ValueError(f'not a raw bin package directory: {bin_path}')
+                load_raw_flash(root)
+                return bin_path
+            if is_standard_bin_dir(root):
+                return bin_path
+            if is_raw_bin_dir(root):
+                load_raw_flash(root)
+                return bin_path
+            if allow_merged:
+                # Ensure the directory contains exactly one valid merged bin.
+                find_merged_bin_in_dir(root)
+                return bin_path
+            if 'partition_table' not in os.listdir(bin_path):
+                raise ValueError(f'Can not find partition_table from bin_path: {bin_path}')
+        elif not is_raw_bin_dir(Path(bin_path)) and 'partition_table' not in os.listdir(bin_path):
+            logger.warning('Can not find partition_table from bin_path, maybe invalid!')
+        return bin_path
 
 
 def bin_path_to_dir(bin_path: str, check_valid: bool = False) -> str:
