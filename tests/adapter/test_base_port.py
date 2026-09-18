@@ -14,6 +14,7 @@ class MockRawPort(RawPort):
         self._lock = threading.Lock()
         self._closed = False
         self.written = bytearray()
+        self.read_timeout = 0.01
 
     def write_bytes(self, data: bytes) -> None:
         with self._lock:
