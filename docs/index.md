@@ -32,6 +32,7 @@ guides/data_monitor
 guides/multimeter
 guides/xunit_report
 guides/firmware_packages
+guides/http_helper
 guides/cli_tools
 guides/jira_attachments
 ```
