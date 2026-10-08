@@ -158,6 +158,24 @@ def test_simple_check_requirements_dev_version_below_lower_bound(
         assert 'esp-test-utils>=0.6.0' in caplog.text
 
 
+def test_simple_check_requirements_skips_unmatched_environment_markers(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Requirements for another platform are not checked, the ones for this platform still are."""
+    reqs_file = tmp_path / 'requirements.txt'
+    reqs_file.write_text(
+        f'other-platform-package>=1.0; sys_platform != "{sys.platform}"\n'
+        f'this-platform-package>=1.0; sys_platform == "{sys.platform}"\n'
+    )
+
+    with mock.patch(patch_target, new_callable=new_callable) as mock_version:
+        mock_version.side_effect = PackageNotFoundError()
+        assert pip_check.simple_check_requirements(reqs_file) is False
+    assert 'this-platform-package' in caplog.text
+    assert 'other-platform-package' not in caplog.text
+
+
 def test_simple_check_requirements_file_not_found() -> None:
     """Test handling of non-existent requirements file"""
     with pytest.raises(FileNotFoundError):

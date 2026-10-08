@@ -73,6 +73,9 @@ def simple_check_requirements(
 
             try:
                 req = Requirement(requirement)
+                # pip skips a requirement whose environment marker does not match, e.g. sys_platform == "win32"
+                if req.marker and not req.marker.evaluate():
+                    continue
                 try:
                     installed_version = Version(version(req.name))
                     # Specifier sets exclude pre-releases by default, which would reject
