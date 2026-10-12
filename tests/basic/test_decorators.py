@@ -3,7 +3,7 @@ import sys
 import threading
 import time
 from contextlib import redirect_stdout
-from typing import Callable, List
+from typing import Any, Callable, List
 
 import pytest
 
@@ -101,6 +101,16 @@ def test_retry_if_except() -> None:
     assert time.time() - t0 < 0.1
 
 
+class _RetryClock:
+    """Stand in for ``decorators.time`` without replacing the global ``time.sleep``."""
+
+    def __init__(self, sleep: Callable[[float], None]) -> None:
+        self.sleep = sleep
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
+
+
 def _record_sleep(recorded: List[float]) -> Callable[[float], None]:
     def _record(seconds: float) -> None:
         recorded.append(seconds)
@@ -110,7 +120,7 @@ def _record_sleep(recorded: List[float]) -> Callable[[float], None]:
 
 def test_retry_delay_sequence(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: List[float] = []
-    monkeypatch.setattr(decorators.time, 'sleep', _record_sleep(recorded))
+    monkeypatch.setattr(decorators, 'time', _RetryClock(_record_sleep(recorded)))
     calls = {'n': 0}
 
     @retry(4, on_exception=(ValueError,), delay=[0.2, 1.5, 3.0])
@@ -151,7 +161,7 @@ def test_retry_delay_sequence_rejects_non_numeric_items() -> None:
 
 def test_retry_delay_sequence_skips_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: List[float] = []
-    monkeypatch.setattr(decorators.time, 'sleep', _record_sleep(recorded))
+    monkeypatch.setattr(decorators, 'time', _RetryClock(_record_sleep(recorded)))
     calls = {'n': 0}
 
     @retry(3, on_exception=(ValueError,), delay=[0, 1.5])
