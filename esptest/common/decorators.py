@@ -47,11 +47,32 @@ class _NotUsedException(UserWarning):
     pass
 
 
+def _check_retry_delay(delay: t.Union[float, t.Sequence[float]], max_retry: int) -> None:
+    """Reject delays that are not a number or a sequence of numbers.
+
+    ``str`` and ``bytes`` are sequences, but iterating them yields characters or
+    code points. Under ``python -O`` an ``assert`` would be removed and the retry
+    loop would index those values.
+    """
+    if isinstance(delay, (str, bytes, bytearray)):
+        raise TypeError(f'delay must be a number or a sequence of numbers, got {type(delay).__name__}')
+    if isinstance(delay, t.Sequence):
+        expected = max_retry - 1
+        if len(delay) != expected:
+            raise ValueError(f'delay sequence length must be max_retry - 1 ({expected}), got {len(delay)}')
+        for item in delay:
+            if not isinstance(item, (int, float)):
+                raise TypeError(f'delay sequence items must be numbers, got {type(item).__name__}')
+        return
+    if not isinstance(delay, (int, float)):
+        raise TypeError(f'delay must be a number or a sequence of numbers, got {type(delay).__name__}')
+
+
 def retry(
     max_retry: int = 3,
     on_result: t.Union[t.List[t.Any], t.Callable[[t.Any], bool]] = lambda x: False,
     on_exception: t.Tuple[t.Type[Exception], ...] = (_NotUsedException,),
-    delay: float = 0,
+    delay: t.Union[float, t.Sequence[float]] = 0,
 ) -> t.Callable[[GenericFunc], GenericFunc]:
     """Retry decorator
 
@@ -60,27 +81,38 @@ def retry(
     - An exception matching ``on_exception`` is raised (if configured).
 
     **on_result** controls retry based on return value. It can be:
-    - **list**: Retry when the return value is **not** in the list; stop and return when it is in the list.
+    - **list**: Retry when the return value is in the list; stop and return when it is not.
     - **callable**: Retry when the callable returns True (result unacceptable); stop and return when it returns False.
     Default is a callable that always returns False, so no retry based on result.
 
     **on_exception** limits which exceptions trigger a retry. Only exceptions whose type is in this tuple
     are caught and cause a retry; others are re-raised. Default uses an internal sentinel so no retry on exception.
 
+    **delay** is the wait before the next attempt, in seconds. It is not applied before the first call
+    or after the last attempt. It can be:
+    - **number**: same wait before every retry.
+    - **sequence**: one wait per retry, in order. Length must be ``max_retry - 1``.
+      Index 0 is the wait after the first failed attempt.
+      ``str``, ``bytes``, and ``bytearray`` are not sequences of wait times.
+
+    A delay of the wrong type raises ``TypeError``. A sequence whose length is not
+    ``max_retry - 1`` raises ``ValueError``.
+
     Args:
         max_retry: Maximum number of total calls. Defaults to 3.
         on_result: Retry based on return value, see description above. Default: no retry on result.
         on_exception: Retry when one of these exceptions is raised. Default: no exception handled.
-        delay: Delay before next retry. Defaults to 0.
+        delay: Delay before the next retry. Defaults to 0.
 
     Returns:
         t.Callable[[GenericFunc], GenericFunc]: A decorator for the target function.
     """
+    _check_retry_delay(delay, max_retry)
 
     def decorator(func: GenericFunc) -> GenericFunc:
         @wraps(func)
         def wrapper(*args: t.Any, **kwargs: t.Any) -> t.Any:
-            for _ in range(max_retry - 1):
+            for attempt in range(max_retry - 1):
                 try:
                     ret = func(*args, **kwargs)
                     if isinstance(on_result, list):
@@ -93,8 +125,12 @@ def retry(
                     logger.info(f'Func {func.__name__} returns {ret}, retrying ...')
                 except on_exception as e:
                     logger.info(f'Func {func.__name__} {type(e)}: {str(e)}, retrying ...')
-                if delay:
-                    time.sleep(delay)
+                if isinstance(delay, t.Sequence):
+                    wait = float(delay[attempt])
+                else:
+                    wait = float(delay)
+                if wait:
+                    time.sleep(wait)
             # Last retry
             return func(*args, **kwargs)
 

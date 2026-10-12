@@ -3,9 +3,11 @@ import sys
 import threading
 import time
 from contextlib import redirect_stdout
+from typing import Callable, List
 
 import pytest
 
+import esptest.common.decorators as decorators
 from esptest.common.decorators import retry, suppress_stdout, timeit
 
 
@@ -97,6 +99,70 @@ def test_retry_if_except() -> None:
     with pytest.raises(ValueError):
         _ = test_func3()
     assert time.time() - t0 < 0.1
+
+
+def _record_sleep(recorded: List[float]) -> Callable[[float], None]:
+    def _record(seconds: float) -> None:
+        recorded.append(seconds)
+
+    return _record
+
+
+def test_retry_delay_sequence(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: List[float] = []
+    monkeypatch.setattr(decorators.time, 'sleep', _record_sleep(recorded))
+    calls = {'n': 0}
+
+    @retry(4, on_exception=(ValueError,), delay=[0.2, 1.5, 3.0])
+    def flaky() -> int:
+        calls['n'] += 1
+        if calls['n'] < 4:
+            raise ValueError('nope')
+        return calls['n']
+
+    assert flaky() == 4
+    assert recorded == [0.2, 1.5, 3.0]
+
+
+def test_retry_delay_sequence_length_must_match_retries() -> None:
+    with pytest.raises(ValueError, match='max_retry - 1'):
+
+        @retry(4, on_exception=(ValueError,), delay=[0.25, 0.75])
+        def flaky() -> int:
+            return 0
+
+
+@pytest.mark.parametrize('delay', ['0.2', b'\x01\x02', bytearray(b'\x01\x02'), None])
+def test_retry_delay_rejects_text_and_non_numbers(delay: object) -> None:
+    with pytest.raises(TypeError, match='delay'):
+
+        @retry(3, delay=delay)  # type: ignore[arg-type]
+        def flaky() -> int:
+            return 0
+
+
+def test_retry_delay_sequence_rejects_non_numeric_items() -> None:
+    with pytest.raises(TypeError, match='delay'):
+
+        @retry(3, delay=[0.2, '1.5'])  # type: ignore[list-item]
+        def flaky() -> int:
+            return 0
+
+
+def test_retry_delay_sequence_skips_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: List[float] = []
+    monkeypatch.setattr(decorators.time, 'sleep', _record_sleep(recorded))
+    calls = {'n': 0}
+
+    @retry(3, on_exception=(ValueError,), delay=[0, 1.5])
+    def flaky() -> int:
+        calls['n'] += 1
+        if calls['n'] < 3:
+            raise ValueError('nope')
+        return calls['n']
+
+    assert flaky() == 3
+    assert recorded == [1.5]
 
 
 def test_timeit() -> None:
