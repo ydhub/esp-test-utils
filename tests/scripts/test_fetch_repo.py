@@ -1,23 +1,33 @@
+import json
 import os
+import shutil
 import subprocess
 import sys
-from importlib.util import module_from_spec, spec_from_file_location
+import time
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Iterator, List, Tuple
 from unittest import mock
 
 import pytest
 
-from esptest.scripts import fetch_repo
+import esptest.common.decorators as decorators
+from esptest.scripts import fetch_repo as fetch_repo_cli
+from esptest.tools import fetch_repo as fetch_repo_script
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / 'esptest' / 'scripts' / 'fetch_repo.py'
-SPEC = spec_from_file_location('fetch_repo_script', MODULE_PATH)
-assert SPEC and SPEC.loader
-fetch_repo_script = module_from_spec(SPEC)
-SPEC.loader.exec_module(fetch_repo_script)
 CI_REPOSITORY_URL = os.getenv('CI_REPOSITORY_URL', '')
 CI_COMMIT_SHA = os.getenv('CI_COMMIT_SHA', '')
 CI_DEFAULT_BRANCH = os.getenv('CI_DEFAULT_BRANCH', 'main')
+_URL = 'https://example.com/repo.git'
+_CONNECT_STDERR = b"fatal: unable to access 'https://example.com/repo.git': Could not resolve host: example.com"
+_HTTP_503_STDERR = b'fatal: unable to access: The requested URL returned error: 503'
+_MISSING_REF_STDERR = b"fatal: couldn't find remote ref refs/heads/no-such-branch\n"
+
+
+@pytest.fixture(autouse=True)
+def _reset_fetch_cache() -> Iterator[None]:
+    fetch_repo_script.clear_fetch_cache()
+    yield
+    fetch_repo_script.clear_fetch_cache()
 
 
 def _git_output(repo: str, *args: str) -> str:
@@ -151,25 +161,30 @@ def test_parse_args_supports_depth(monkeypatch: pytest.MonkeyPatch) -> None:
         'argv',
         ['prog', '--url', 'https://example.com/repo.git', '--path', '/tmp/repo', '--ref', 'abc123', '--depth', '5'],
     )
-    args = fetch_repo_script.parse_args()
+    args = fetch_repo_cli.parse_args()
     assert args.depth == 5
 
 
 def test_main_invokes_fetch_repo(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = fetch_repo_script.argparse.Namespace(
+    args = fetch_repo_cli.argparse.Namespace(
         url='https://example.com/repo.git',
         path='/tmp/repo',
         ref='main',
         depth=2,
     )
     # fmt: off
-    with mock.patch.object(fetch_repo_script, 'parse_args', return_value=args), mock.patch.object(
-        fetch_repo_script, 'fetch_repo'
-    ) as fetch_repo_mock, mock.patch.object(fetch_repo_script.logging, 'basicConfig'):
+    with mock.patch.object(fetch_repo_cli, 'parse_args', return_value=args), mock.patch.object(
+        fetch_repo_cli, 'fetch_repo'
+    ) as fetch_repo_mock, mock.patch.object(fetch_repo_cli.logging, 'basicConfig'):
     # fmt: on
-        fetch_repo_script.main()
+        fetch_repo_cli.main()
 
-    fetch_repo_mock.assert_called_once_with('https://example.com/repo.git', '/tmp/repo', 'main', depth=2)
+    fetch_repo_mock.assert_called_once_with(
+        'https://example.com/repo.git',
+        '/tmp/repo',
+        'main',
+        depth=2,
+    )
 
 
 def test_no_git_commands_when_no_ref_and_path_exists() -> None:
@@ -225,7 +240,7 @@ def test_fetch_repo_cleans_non_git_path_then_fetches(tmp_path: Path) -> None:
     repo_path.mkdir()
     (repo_path / 'stale.txt').write_text('stale\n')
 
-    fetch_repo.main(['--url', remote_url, '--path', str(repo_path), '--ref', 'main', '--depth', '1'])
+    fetch_repo_cli.main(['--url', remote_url, '--path', str(repo_path), '--ref', 'main', '--depth', '1'])
 
     assert _git_output(str(repo_path), 'rev-parse', 'HEAD') == main_sha
     assert not (repo_path / 'stale.txt').exists()
@@ -237,7 +252,7 @@ def test_fetch_repo_cleans_corrupted_repo_then_fetches(tmp_path: Path) -> None:
     repo_path.mkdir()
     (repo_path / '.git').mkdir()
 
-    fetch_repo.main(['--url', remote_url, '--path', str(repo_path), '--ref', 'main', '--depth', '1'])
+    fetch_repo_cli.main(['--url', remote_url, '--path', str(repo_path), '--ref', 'main', '--depth', '1'])
 
     assert _git_output(str(repo_path), 'rev-parse', 'HEAD') == main_sha
 
@@ -251,34 +266,74 @@ def test_fetch_depth1_main_then_another_ref(tmp_path: Path, second_ref_kind: str
     repo_path = str(tmp_path / 'repo')
     second_ref = 'feature' if second_ref_kind == 'branch' else feature_sha
 
-    fetch_repo.main(['--url', remote_url, '--path', repo_path, '--ref', 'main', '--depth', '1'])
+    fetch_repo_cli.main(['--url', remote_url, '--path', repo_path, '--ref', 'main', '--depth', '1'])
     assert os.path.isdir(os.path.join(repo_path, '.git'))
     assert _git_output(repo_path, 'rev-parse', 'HEAD') == main_sha
 
-    fetch_repo.main(['--url', remote_url, '--path', repo_path, '--ref', second_ref, '--depth', '1'])
+    fetch_repo_cli.main(['--url', remote_url, '--path', repo_path, '--ref', second_ref, '--depth', '1'])
     assert _git_output(repo_path, 'rev-parse', 'HEAD') == feature_sha
 
 
-def test_fetch_depth1_main_then_invalid_branch(tmp_path: Path) -> None:
+def _init_remote_with_branch(tmp_path: Path, branch: str) -> Tuple[str, str]:
+    work = tmp_path / 'work'
+    remote = tmp_path / 'remote.git'
+    work.mkdir()
+    subprocess.check_call(['git', 'init', '-b', branch, str(work)])
+    subprocess.check_call(['git', '-C', str(work), 'config', 'user.email', 'test@example.com'])
+    subprocess.check_call(['git', '-C', str(work), 'config', 'user.name', 'test'])
+    (work / 'file.txt').write_text(branch + '\n')
+    subprocess.check_call(['git', '-C', str(work), 'add', 'file.txt'])
+    subprocess.check_call(['git', '-C', str(work), 'commit', '-m', branch])
+    sha = _git_output(str(work), 'rev-parse', 'HEAD')
+    subprocess.check_call(['git', 'clone', '--bare', str(work), str(remote)])
+    return str(remote), sha
+
+
+def test_missing_ref_without_fallback_keeps_checkout(tmp_path: Path) -> None:
     remote_url, main_sha, _feature_sha = _init_remote_with_main_and_feature(tmp_path)
     repo_path = str(tmp_path / 'repo')
 
-    fetch_repo.main(['--url', remote_url, '--path', repo_path, '--ref', 'main', '--depth', '1'])
+    fetch_repo_script.fetch_repo(remote_url, repo_path, 'main', depth=1)
     assert _git_output(repo_path, 'rev-parse', 'HEAD') == main_sha
 
     with pytest.raises(subprocess.CalledProcessError):
-        fetch_repo.main(['--url', remote_url, '--path', repo_path, '--ref', 'no-such-branch', '--depth', '1'])
+        fetch_repo_script.fetch_repo(remote_url, repo_path, 'no-such-branch', depth=1, fallback_refs=())
 
-    # failed fetch must leave the existing checkout intact
     assert os.path.isdir(os.path.join(repo_path, '.git'))
     assert _git_output(repo_path, 'rev-parse', 'HEAD') == main_sha
+
+
+def test_missing_ref_falls_back_to_remote_default_branch(tmp_path: Path) -> None:
+    remote_url, develop_sha = _init_remote_with_branch(tmp_path, 'develop')
+    repo_path = str(tmp_path / 'repo')
+
+    fetch_repo_cli.main(['--url', remote_url, '--path', repo_path, '--ref', 'no-such-branch', '--depth', '1'])
+
+    assert _git_output(repo_path, 'rev-parse', '--abbrev-ref', 'HEAD') == 'develop'
+    assert _git_output(repo_path, 'rev-parse', 'HEAD') == develop_sha
+
+
+def test_fallback_refs_uses_first_existing_ref(tmp_path: Path) -> None:
+    remote_url, _main_sha, feature_sha = _init_remote_with_main_and_feature(tmp_path)
+    repo_path = str(tmp_path / 'repo')
+
+    fetch_repo_script.fetch_repo(
+        remote_url,
+        repo_path,
+        'no-such-branch',
+        depth=1,
+        fallback_refs=('also-missing', 'feature'),
+    )
+
+    assert _git_output(repo_path, 'rev-parse', '--abbrev-ref', 'HEAD') == 'feature'
+    assert _git_output(repo_path, 'rev-parse', 'HEAD') == feature_sha
 
 
 @pytest.mark.skipif(not CI_REPOSITORY_URL, reason='CI_REPOSITORY_URL is not set in CI')
 def test_fetch_repo_via_commit_hash() -> None:
     # pass args to main
     cmd_args = ['--url', CI_REPOSITORY_URL, '--path', '/tmp/repo', '--ref', CI_COMMIT_SHA, '--depth', '1']
-    fetch_repo.main(cmd_args)
+    fetch_repo_cli.main(cmd_args)
     # check if /tmp/repo exists and is a git repository
     assert os.path.isdir('/tmp/repo')
     assert os.path.isdir(os.path.join('/tmp/repo', '.git'))
@@ -295,8 +350,252 @@ def test_fetch_repo_via_commit_hash() -> None:
 )
 def test_fetch_repo_depth1_default_branch_then_commit(tmp_path: Path) -> None:
     repo_path = str(tmp_path / 'repo')
-    fetch_repo.main(['--url', CI_REPOSITORY_URL, '--path', repo_path, '--ref', CI_DEFAULT_BRANCH, '--depth', '1'])
+    fetch_repo_cli.main(['--url', CI_REPOSITORY_URL, '--path', repo_path, '--ref', CI_DEFAULT_BRANCH, '--depth', '1'])
     assert os.path.isdir(os.path.join(repo_path, '.git'))
 
-    fetch_repo.main(['--url', CI_REPOSITORY_URL, '--path', repo_path, '--ref', CI_COMMIT_SHA, '--depth', '1'])
+    fetch_repo_cli.main(['--url', CI_REPOSITORY_URL, '--path', repo_path, '--ref', CI_COMMIT_SHA, '--depth', '1'])
     assert _git_output(repo_path, 'rev-parse', 'HEAD') == CI_COMMIT_SHA
+
+
+def test_scripts_fetch_repo_reexports_tools() -> None:
+    from esptest.scripts import fetch_repo as script_mod
+
+    assert script_mod.fetch_repo is fetch_repo_script.fetch_repo
+    assert script_mod.main is fetch_repo_cli.main
+    assert script_mod.check_git_repo is fetch_repo_script.check_git_repo
+    assert script_mod.clone_or_fetch is fetch_repo_script.clone_or_fetch
+    assert script_mod.DEFAULT_BRANCH is fetch_repo_script.DEFAULT_BRANCH
+
+
+def test_clone_or_fetch_skips_existing_path_without_ref() -> None:
+    with (
+        mock.patch.object(fetch_repo_script.os.path, 'isdir', return_value=True),
+        mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock,
+    ):
+        fetched = fetch_repo_script.clone_or_fetch(_URL, '/tmp/repo', '', 0)
+
+    assert fetched is False
+    run_cmd_mock.assert_not_called()
+
+
+def test_fallback_refs_rejects_a_string() -> None:
+    with pytest.raises(TypeError, match='fallback_refs'):
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', fallback_refs='main')
+
+
+def test_fetch_repo_rejects_non_positive_max_retry() -> None:
+    with pytest.raises(ValueError, match='max_retry'):
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=0)
+
+
+def test_default_fetches_again_in_same_process() -> None:
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main')
+        first = run_cmd_mock.call_count
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main')
+
+    assert first > 0
+    assert run_cmd_mock.call_count == first * 2
+
+
+def test_fetch_once_skips_second_call() -> None:
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', fetch_once=True)
+        first = run_cmd_mock.call_count
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', fetch_once=True)
+
+    assert first > 0
+    assert run_cmd_mock.call_count == first
+
+
+def test_fetch_once_refetches_different_ref_or_depth() -> None:
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', depth=1, fetch_once=True)
+        after_main = run_cmd_mock.call_count
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'feature', depth=1, fetch_once=True)
+        after_feature = run_cmd_mock.call_count
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'feature', depth=2, fetch_once=True)
+
+    assert after_feature > after_main
+    assert run_cmd_mock.call_count > after_feature
+
+
+def test_refetch_interval_skips_until_window_expires(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = {'now': 1_000_000.0}
+    monkeypatch.setattr(fetch_repo_script.time, 'time', lambda: clock['now'])
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo-interval', 'main', refetch_interval=50)
+        first = run_cmd_mock.call_count
+        clock['now'] += 10
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo-interval', 'main', refetch_interval=50)
+        assert run_cmd_mock.call_count == first
+        clock['now'] += 50
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo-interval', 'main', refetch_interval=50)
+
+    assert first > 0
+    assert run_cmd_mock.call_count > first
+
+
+def test_refetch_interval_skips_when_stamp_is_fresh(tmp_path: Path) -> None:
+    repo = tmp_path / 'repo'
+    (repo / '.git').mkdir(parents=True)
+    payload = {'url': _URL, 'ref': 'main', 'depth': 1, 'fetched_at': time.time()}
+    (repo / '.git' / 'esptest_fetch_stamp.json').write_text(json.dumps(payload), encoding='utf-8')
+
+    with (
+        mock.patch.object(fetch_repo_script, 'check_git_repo'),
+        mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock,
+    ):
+        fetch_repo_script.fetch_repo(_URL, str(repo), 'main', depth=1, refetch_interval=3600)
+
+    run_cmd_mock.assert_not_called()
+
+
+def test_refetch_interval_ignores_stale_or_other_ref_stamp(tmp_path: Path) -> None:
+    repo = tmp_path / 'repo'
+    (repo / '.git').mkdir(parents=True)
+    payload = {'url': _URL, 'ref': 'main', 'depth': 1, 'fetched_at': time.time() - 7200}
+    (repo / '.git' / 'esptest_fetch_stamp.json').write_text(json.dumps(payload), encoding='utf-8')
+
+    with (
+        mock.patch.object(fetch_repo_script, 'check_git_repo'),
+        mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock,
+    ):
+        fetch_repo_script.fetch_repo(_URL, str(repo), 'main', depth=1, refetch_interval=3600)
+        stale_calls = run_cmd_mock.call_count
+        fetch_repo_script.clear_fetch_cache()
+        fetch_repo_script.fetch_repo(_URL, str(repo), 'feature', depth=1, refetch_interval=3600)
+
+    assert stale_calls > 0
+    assert run_cmd_mock.call_count > stale_calls
+
+
+@pytest.mark.parametrize('stderr', [_CONNECT_STDERR, _HTTP_503_STDERR])
+def test_fetch_retries_transient_git_errors(stderr: bytes, monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: List[float] = []
+
+    def _record(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(decorators.time, 'sleep', _record)
+    state = {'n': 0}
+
+    def _run(cmd: List[str], **_kwargs: Any) -> None:
+        if 'fetch' in cmd:
+            state['n'] += 1
+            if state['n'] < 3:
+                raise subprocess.CalledProcessError(128, cmd, stderr=stderr)
+
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run):
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=3, retry_delay=[0.5, 2.0])
+
+    assert state['n'] == 3
+    assert recorded == [0.5, 2.0]
+
+
+def test_fetch_raises_called_process_error_after_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(decorators.time, 'sleep', lambda _seconds: None)
+    state = {'n': 0}
+
+    def _run(cmd: List[str], **_kwargs: Any) -> None:
+        if 'fetch' in cmd:
+            state['n'] += 1
+            raise subprocess.CalledProcessError(128, cmd, stderr=_CONNECT_STDERR)
+
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run), pytest.raises(subprocess.CalledProcessError):
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=2, retry_delay=0)
+
+    assert state['n'] == 2
+
+
+def test_fetch_does_not_retry_missing_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: List[float] = []
+
+    def _record(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(decorators.time, 'sleep', _record)
+    state = {'n': 0}
+
+    def _run(cmd: List[str], **_kwargs: Any) -> None:
+        if 'fetch' in cmd:
+            state['n'] += 1
+            raise subprocess.CalledProcessError(128, cmd, stderr=_MISSING_REF_STDERR)
+
+    # fmt: off
+    with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
+        fetch_repo_script.os.path, 'isdir', return_value=True
+    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run), pytest.raises(
+        subprocess.CalledProcessError
+    ):
+    # fmt: on
+        fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=3, retry_delay=5, fallback_refs=())
+
+    assert state['n'] == 1
+    assert recorded == []
+
+
+def test_fetch_once_skips_after_remote_removed(tmp_path: Path) -> None:
+    remote_url, main_sha, _feature_sha = _init_remote_with_main_and_feature(tmp_path)
+    repo_path = str(tmp_path / 'repo')
+
+    fetch_repo_script.fetch_repo(remote_url, repo_path, 'main', depth=1, fetch_once=True)
+    shutil.rmtree(tmp_path / 'remote.git')
+    fetch_repo_script.fetch_repo(remote_url, repo_path, 'main', depth=1, fetch_once=True)
+
+    assert _git_output(repo_path, 'rev-parse', 'HEAD') == main_sha
+
+
+def test_fetch_once_does_not_reuse_stamp_after_cache_clear(tmp_path: Path) -> None:
+    remote_url, _main_sha, _feature_sha = _init_remote_with_main_and_feature(tmp_path)
+    repo_path = str(tmp_path / 'repo')
+
+    fetch_repo_script.fetch_repo(remote_url, repo_path, 'main', depth=1, fetch_once=True)
+    fetch_repo_script.clear_fetch_cache()
+    shutil.rmtree(tmp_path / 'remote.git')
+    with pytest.raises(subprocess.CalledProcessError):
+        fetch_repo_script.fetch_repo(remote_url, repo_path, 'main', depth=1, fetch_once=True)
+
+
+def test_refetch_interval_uses_stamp_after_cache_clear(tmp_path: Path) -> None:
+    remote_url, main_sha, _feature_sha = _init_remote_with_main_and_feature(tmp_path)
+    repo_path = tmp_path / 'repo'
+    repo = str(repo_path)
+
+    fetch_repo_script.fetch_repo(remote_url, repo, 'main', depth=1, refetch_interval=3600)
+    shutil.rmtree(tmp_path / 'remote.git')
+    fetch_repo_script.clear_fetch_cache()
+    fetch_repo_script.fetch_repo(remote_url, repo, 'main', depth=1, refetch_interval=3600)
+    assert _git_output(repo, 'rev-parse', 'HEAD') == main_sha
+
+    stamp = repo_path / '.git' / 'esptest_fetch_stamp.json'
+    payload = json.loads(stamp.read_text(encoding='utf-8'))
+    payload['fetched_at'] = time.time() - 7200
+    stamp.write_text(json.dumps(payload), encoding='utf-8')
+    fetch_repo_script.clear_fetch_cache()
+    with pytest.raises(subprocess.CalledProcessError):
+        fetch_repo_script.fetch_repo(remote_url, repo, 'main', depth=1, refetch_interval=3600)
