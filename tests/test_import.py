@@ -7,7 +7,17 @@ def test_import_from_all() -> None:
         del sys.modules['esptest']
 
     # exported methods / classes
-    from esptest.all import DutBase, DutConfig, EspDut, SerialPort, dut_wrapper, get_logger, run_cmd, to_bytes, to_str
+    from esptest.all import (
+        DutBase,
+        DutConfig,
+        EspDut,
+        SerialPort,
+        dut_wrapper,
+        get_logger,
+        run_cmd,
+        to_bytes,
+        to_str,
+    )
 
     # pass ruff format
     assert all(callable(fn) for fn in [dut_wrapper, to_bytes, to_str, run_cmd, get_logger])
