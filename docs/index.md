@@ -30,6 +30,7 @@ quickstart
 guides/dut
 guides/data_monitor
 guides/multimeter
+guides/dps
 guides/xunit_report
 guides/firmware_packages
 guides/http_helper

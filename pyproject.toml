@@ -114,6 +114,7 @@ include = ["esptest", "esptest.*"]
         esp-pipcheck = "esptest.tools.pip_check:main"
         esp-fetch-repo = "esptest.scripts.fetch_repo:main"
         esp-jira-att = "esptest.scripts.jira_attachment:main"
+        esp-dps = "esptest.scripts.dps:main"
 
     [project.urls]
         Homepage = "https://github.com/ydhub/esp-test-utils"

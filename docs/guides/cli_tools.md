@@ -15,6 +15,7 @@ lab automation. Run any of them with `-h`/`--help` for the full option list.
 | `esp-relay`      | Control a serial relay board.                                      |
 | `esp-uhubctl`    | Control and inspect USB hubs via `uhubctl`/sysfs (Linux).          |
 | `esp-tempbox`    | Control a U680 temperature box over Modbus.                        |
+| `esp-dps`        | Control a DPS3005/DPS5005 programmable power supply.               |
 | `esp-fetch-repo` | Fetch/clone a git repository to a local path.                      |
 | `esp-pipcheck`   | Check installed packages against a requirements file.              |
 | `esp-jira-att`   | List, upload, and download Jira issue attachments (Jira extra).    |
@@ -119,6 +120,17 @@ esp-tempbox --mode stop
 
 Use `--port` to pick a serial device (auto-detected when omitted) and
 `--address` for the Modbus slave address.
+
+## `esp-dps`
+
+```bash
+esp-dps                                      # auto-detect and show status
+esp-dps -p /dev/ttyUSB0 -v 3.3 -c 1.5 -o on
+esp-dps -p /dev/ttyUSB0 -o off
+```
+
+See {doc}`dps` for wiring, safety limits, protection settings, and the Python
+API.
 
 ## `esp-fetch-repo`
 
