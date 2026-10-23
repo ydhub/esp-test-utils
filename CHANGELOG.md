@@ -1,3 +1,14 @@
+## v0.6.5 (2026-10-23)
+
+
+- feat(fetch_repo): move implementation into tools (e0e08ad)
+- feat(decorators): allow a different delay for each retry (54fab32)
+- feat: add dps programmable PSU control (7b2439e)
+- fix(pip_check): skip requirements whose environment marker does not match (21694ce)
+- feat: add HttpHelper/HttpsHelper for local HTTP tests (0a46fad)
+- fix: clean partial zip extracts before retry (f3a47e8)
+- fix: serialize zip extract to avoid FileExistsError (97cd59e)
+
 ## v0.6.4 (2026-09-04)
 
 
