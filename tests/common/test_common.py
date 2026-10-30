@@ -6,7 +6,7 @@ import pytest
 
 from esptest.common.encoding import to_bytes, to_str
 from esptest.common.generator import get_next_index
-from esptest.common.shell import RunCmdError, run_cmd
+from esptest.common.shell import RunCmdError, run_command
 
 
 def test_get_next_index() -> None:
@@ -38,16 +38,16 @@ def test_to_str_to_bytes() -> None:
     assert to_bytes(res) == b'\xef\xbf\xbd\xef\xbf\xbd'
 
 
-def test_run_cmd() -> None:
-    output = run_cmd('echo hello')
+def test_run_command_check() -> None:
+    output = run_command('echo hello', check=True, capture_output=True, text=True).output
     assert output == 'hello\n'
     if sys.platform != 'win32':
-        output = run_cmd(['echo', 'world'])
+        output = run_command(['echo', 'world'], check=True, capture_output=True, text=True).output
     else:
-        output = run_cmd(['cmd.exe', '/c', 'echo world'])
+        output = run_command(['cmd.exe', '/c', 'echo world'], check=True, capture_output=True, text=True).output
     assert output == 'world\n'
     with pytest.raises(RunCmdError) as e:
-        run_cmd('invalid_command')
+        run_command('invalid_command', check=True, capture_output=True, text=True)
     assert 'invalid_command' in str(e)
     assert 'not found' in str(e) or '不是内部或外部命令' in str(e)
 

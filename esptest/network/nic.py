@@ -6,10 +6,15 @@ from itertools import permutations
 
 from ..common import compat_typing as t
 from ..common.decorators import enhance_import_error_message
-from ..common.shell import run_cmd
+from ..common.shell import run_command
 from ..logger import get_logger
 
 logger = get_logger('wnic')
+
+
+def _shell_text(cmd: t.Union[str, t.List[str]]) -> str:
+    """Return combined stdout and stderr for ``cmd``."""
+    return run_command(cmd, capture_output=True, text=True, errors='ignore').output
 
 
 class Nic:
@@ -29,7 +34,7 @@ class Nic:
             args = ['ip', 'link', 'set', self.iface, 'up']
         if sudo:
             args = ['sudo'] + args
-        run_cmd(args)
+        run_command(args)
 
     def iface_down(self, sudo: bool = True) -> None:
         args = []
@@ -39,7 +44,7 @@ class Nic:
             args = ['ip', 'link', 'set', self.iface, 'down']
         if sudo:
             args = ['sudo'] + args
-        run_cmd(args)
+        run_command(args)
 
     def dhcp_start(self, sudo: bool = True) -> None:
         args = []
@@ -52,11 +57,11 @@ class Nic:
             raise NotImplementedError()
         if sudo:
             args = ['sudo'] + args
-        run_cmd(args)
+        run_command(args)
 
     @staticmethod
     def kill_wpa_supplicant() -> None:
-        run_cmd('sudo killall wpa_supplicant || true')
+        run_command('sudo killall wpa_supplicant || true')
 
     @enhance_import_error_message('please install scapy or "pip install esp-test-utils[all]"')
     def send(self, packet, count, inter, verbose=False):  # type: ignore
@@ -106,7 +111,7 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
     def get_phy_info(phy: str, country: str = '') -> str:
         if country:
             WiFiNic.set_country_code(country)
-        return run_cmd(f'iw {phy} info')
+        return _shell_text(f'iw {phy} info')
 
     @property
     def phy_info(self) -> str:
@@ -175,14 +180,14 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
     def iw_set_type(self, if_type: str) -> None:
         """Set interface type: managed, monitor, etc..."""
         args = ['sudo', 'iw', 'dev', self.iface, 'set', 'type', if_type]
-        run_cmd(args)
+        run_command(args)
 
     def set_channel(self, channel: int, bw: str = '') -> None:
         """Start wifi nic channel, bw can be ``[NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz]``"""
         args = ['sudo', 'iw', 'dev', self.iface, 'set', 'channel', str(channel)]
         if bw:
             args += [bw]
-        run_cmd(args)
+        run_command(args)
 
     def set_rate(self, rate: float, short_gi: bool = False) -> None:
         dot11b_rates = [1, 2, 5.5, 11]
@@ -201,7 +206,7 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
             args = ['sudo', 'iw', 'dev', self.iface, 'set', 'bitrates', 'ht-mcs-2.4', str(rate), 'lgi-2.4']
         else:
             raise ValueError(f'Invalid rate: {rate}! please check!')
-        run_cmd(args)
+        run_command(args)
 
     def nic_ready(self, channel: int, rate: float = 0, short_gi: bool = False, bw: str = '') -> None:
         self.iface_down()
@@ -228,18 +233,18 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
     @lru_cache(maxsize=1)
     def iw_dev() -> str:
         """List all network interfaces for wireless hardware."""
-        return run_cmd('iw dev')
+        return _shell_text('iw dev')
 
     @staticmethod
     def set_country_code(country_code: str = '') -> None:
         """Need set country before get full supported channels"""
-        run_cmd(['sudo', 'iw', 'reg', 'set', country_code])
+        run_command(['sudo', 'iw', 'reg', 'set', country_code])
 
     @staticmethod
     @lru_cache(maxsize=1)
     def iw_reg_get() -> str:
         """Print out the kernel's current regulatory domain information."""
-        return run_cmd('iw reg get')
+        return _shell_text('iw reg get')
 
     @staticmethod
     @lru_cache(maxsize=1)
@@ -254,7 +259,7 @@ class WiFiNic(Nic):  # pylint: disable=too-many-public-methods
     @lru_cache(maxsize=1)
     def get_region_self_managed() -> str:
         _cmd = 'iw reg get | grep self-managed'
-        output = run_cmd(_cmd)
+        output = _shell_text(_cmd)
         return output.split(' ', maxsplit=1)[0]
 
     # functools.cache is supported from python3.9

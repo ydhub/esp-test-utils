@@ -12,7 +12,7 @@ from unittest import mock
 import pytest
 
 import esptest.common.decorators as decorators
-from esptest.common.shell import RunCmdError
+from esptest.common.shell import CmdResult, RunCmdError
 from esptest.scripts import fetch_repo as fetch_repo_cli
 from esptest.tools import fetch_repo as fetch_repo_script
 
@@ -23,6 +23,7 @@ _URL = 'https://example.com/repo.git'
 _CONNECT_STDERR = "fatal: unable to access 'https://example.com/repo.git': Could not resolve host: example.com"
 _HTTP_503_STDERR = 'fatal: unable to access: The requested URL returned error: 503'
 _MISSING_REF_STDERR = "fatal: couldn't find remote ref refs/heads/no-such-branch\n"
+_GIT_KW = {'check': False, 'capture_output': True, 'text': True, 'errors': 'ignore'}
 
 
 class _RetryClock:
@@ -89,43 +90,49 @@ def test_clone_uses_depth_when_no_ref_and_path_missing() -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=False
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', '/tmp/repo', '', depth=3)
 
-    run_cmd_mock.assert_called_once_with(['git', 'clone', 'https://example.com/repo.git', '/tmp/repo', '--depth', '3'])
+    command_mock.assert_called_once_with(
+        ['git', 'clone', 'https://example.com/repo.git', '/tmp/repo', '--depth', '3'],
+        **_GIT_KW,
+    )
 
 
 def test_clone_without_depth_when_no_ref() -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=False
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', '/tmp/repo', '')
 
-    run_cmd_mock.assert_called_once_with(['git', 'clone', 'https://example.com/repo.git', '/tmp/repo'])
+    command_mock.assert_called_once_with(['git', 'clone', 'https://example.com/repo.git', '/tmp/repo'], **_GIT_KW)
 
 
 def test_ref_inits_repo_and_fetches_when_path_missing() -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=False
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock, mock.patch.object(
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock, mock.patch.object(
         fetch_repo_script.os, 'makedirs'
     ) as makedirs_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', '/tmp/repo', 'v1.0.0')
 
     makedirs_mock.assert_called_once_with('/tmp/repo', exist_ok=True)
-    run_cmd_mock.assert_has_calls(
+    assert command_mock.call_args_list == (
         [
-            mock.call(['git', '-C', '/tmp/repo', 'init']),
-            mock.call(['git', '-C', '/tmp/repo', 'config', 'remote.origin.url', 'https://example.com/repo.git']),
-            mock.call(['git', '-C', '/tmp/repo', 'fetch', 'origin', 'v1.0.0']),
-            mock.call(['git', '-C', '/tmp/repo', 'checkout', '-f', '-B', 'v1.0.0', 'FETCH_HEAD']),
-            mock.call(['git', '-C', '/tmp/repo', 'reset', '--hard']),
-            mock.call(['git', '-C', '/tmp/repo', 'clean', '-ffdx']),
+            mock.call(['git', '-C', '/tmp/repo', 'init'], **_GIT_KW),
+            mock.call(
+                ['git', '-C', '/tmp/repo', 'config', 'remote.origin.url', 'https://example.com/repo.git'],
+                **_GIT_KW,
+            ),
+            mock.call(['git', '-C', '/tmp/repo', 'fetch', 'origin', 'v1.0.0'], **_GIT_KW),
+            mock.call(['git', '-C', '/tmp/repo', 'checkout', '-f', '-B', 'v1.0.0', 'FETCH_HEAD'], **_GIT_KW),
+            mock.call(['git', '-C', '/tmp/repo', 'reset', '--hard'], **_GIT_KW),
+            mock.call(['git', '-C', '/tmp/repo', 'clean', '-ffdx'], **_GIT_KW),
         ]
     )
 
@@ -146,17 +153,17 @@ def test_fetch_existing_repo_with_ref_and_depth(tmp_path: Path) -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', repo, 'release/v5.2', depth=1)
 
-    run_cmd_mock.assert_has_calls(
+    assert command_mock.call_args_list == (
         [
-            mock.call(['git', '-C', repo, 'config', 'remote.origin.url', 'https://example.com/repo.git']),
-            mock.call(['git', '-C', repo, 'fetch', 'origin', 'release/v5.2', '--depth', '1']),
-            mock.call(['git', '-C', repo, 'checkout', '-f', '-B', 'release/v5.2', 'FETCH_HEAD']),
-            mock.call(['git', '-C', repo, 'reset', '--hard']),
-            mock.call(['git', '-C', repo, 'clean', '-ffdx']),
+            mock.call(['git', '-C', repo, 'config', 'remote.origin.url', 'https://example.com/repo.git'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'fetch', 'origin', 'release/v5.2', '--depth', '1'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'checkout', '-f', '-B', 'release/v5.2', 'FETCH_HEAD'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'reset', '--hard'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'clean', '-ffdx'], **_GIT_KW),
         ]
     )
 
@@ -166,17 +173,17 @@ def test_fetch_existing_repo_with_short_ref(tmp_path: Path) -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', repo, 'a1b2c3d4')
 
-    run_cmd_mock.assert_has_calls(
+    assert command_mock.call_args_list == (
         [
-            mock.call(['git', '-C', repo, 'config', 'remote.origin.url', 'https://example.com/repo.git']),
-            mock.call(['git', '-C', repo, 'fetch', 'origin', 'a1b2c3d4']),
-            mock.call(['git', '-C', repo, 'checkout', '-f', '-B', 'a1b2c3d4', 'FETCH_HEAD']),
-            mock.call(['git', '-C', repo, 'reset', '--hard']),
-            mock.call(['git', '-C', repo, 'clean', '-ffdx']),
+            mock.call(['git', '-C', repo, 'config', 'remote.origin.url', 'https://example.com/repo.git'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'fetch', 'origin', 'a1b2c3d4'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'checkout', '-f', '-B', 'a1b2c3d4', 'FETCH_HEAD'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'reset', '--hard'], **_GIT_KW),
+            mock.call(['git', '-C', repo, 'clean', '-ffdx'], **_GIT_KW),
         ]
     )
 
@@ -217,11 +224,11 @@ def test_no_git_commands_when_no_ref_and_path_exists() -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo('https://example.com/repo.git', '/tmp/repo', '')
 
-    run_cmd_mock.assert_not_called()
+    command_mock.assert_not_called()
 
 
 def test_check_git_repo_noop_when_path_missing(tmp_path: Path) -> None:
@@ -496,13 +503,13 @@ def test_scripts_fetch_repo_exports_cli_only() -> None:
 def test_clone_or_fetch_skips_existing_path_without_ref() -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script.os.path, 'isdir', return_value=True), mock.patch.object(
-        fetch_repo_script, 'run_cmd'
-    ) as run_cmd_mock:
+        fetch_repo_script, 'run_command'
+    ) as command_mock:
     # fmt: on
         fetched = fetch_repo_script.clone_or_fetch(_URL, '/tmp/repo', '', 0)
 
     assert fetched is False
-    run_cmd_mock.assert_not_called()
+    command_mock.assert_not_called()
 
 
 def test_fallback_refs_rejects_a_string() -> None:
@@ -520,14 +527,14 @@ def test_default_fetches_again_in_same_process(tmp_path: Path) -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main')
-        first = run_cmd_mock.call_count
+        first = command_mock.call_count
         fetch_repo_script.fetch_repo(_URL, repo, 'main')
 
     assert first > 0
-    assert run_cmd_mock.call_count == first * 2
+    assert command_mock.call_count == first * 2
 
 
 def test_fetch_once_skips_second_call(tmp_path: Path) -> None:
@@ -535,14 +542,14 @@ def test_fetch_once_skips_second_call(tmp_path: Path) -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main', fetch_once=True)
-        first = run_cmd_mock.call_count
+        first = command_mock.call_count
         fetch_repo_script.fetch_repo(_URL, repo, 'main', fetch_once=True)
 
     assert first > 0
-    assert run_cmd_mock.call_count == first
+    assert command_mock.call_count == first
 
 
 def test_fetch_once_refetches_different_ref_or_depth(tmp_path: Path) -> None:
@@ -550,16 +557,16 @@ def test_fetch_once_refetches_different_ref_or_depth(tmp_path: Path) -> None:
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main', depth=1, fetch_once=True)
-        after_main = run_cmd_mock.call_count
+        after_main = command_mock.call_count
         fetch_repo_script.fetch_repo(_URL, repo, 'feature', depth=1, fetch_once=True)
-        after_feature = run_cmd_mock.call_count
+        after_feature = command_mock.call_count
         fetch_repo_script.fetch_repo(_URL, repo, 'feature', depth=2, fetch_once=True)
 
     assert after_feature > after_main
-    assert run_cmd_mock.call_count > after_feature
+    assert command_mock.call_count > after_feature
 
 
 def test_fetch_once_refetches_when_switching_back_to_previous_ref(tmp_path: Path) -> None:
@@ -584,18 +591,18 @@ def test_refetch_interval_refetches_when_switching_back_to_previous_ref(
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main', refetch_interval=50)
-        after_main = run_cmd_mock.call_count
+        after_main = command_mock.call_count
         clock['now'] += 1
         fetch_repo_script.fetch_repo(_URL, repo, 'feature', refetch_interval=50)
-        after_feature = run_cmd_mock.call_count
+        after_feature = command_mock.call_count
         clock['now'] += 1
         fetch_repo_script.fetch_repo(_URL, repo, 'main', refetch_interval=50)
 
     assert after_feature > after_main
-    assert run_cmd_mock.call_count > after_feature
+    assert command_mock.call_count > after_feature
 
 
 def test_refetch_interval_skips_until_window_expires(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -605,18 +612,18 @@ def test_refetch_interval_skips_until_window_expires(monkeypatch: pytest.MonkeyP
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd') as run_cmd_mock:
+    ), mock.patch.object(fetch_repo_script, 'run_command') as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main', refetch_interval=50)
-        first = run_cmd_mock.call_count
+        first = command_mock.call_count
         clock['now'] += 10
         fetch_repo_script.fetch_repo(_URL, repo, 'main', refetch_interval=50)
-        assert run_cmd_mock.call_count == first
+        assert command_mock.call_count == first
         clock['now'] += 50
         fetch_repo_script.fetch_repo(_URL, repo, 'main', refetch_interval=50)
 
     assert first > 0
-    assert run_cmd_mock.call_count > first
+    assert command_mock.call_count > first
 
 
 def test_refetch_interval_skips_when_stamp_is_fresh(tmp_path: Path) -> None:
@@ -627,12 +634,12 @@ def test_refetch_interval_skips_when_stamp_is_fresh(tmp_path: Path) -> None:
 
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
-        fetch_repo_script, 'run_cmd'
-    ) as run_cmd_mock:
+        fetch_repo_script, 'run_command'
+    ) as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, str(repo), 'main', depth=1, refetch_interval=3600)
 
-    run_cmd_mock.assert_not_called()
+    command_mock.assert_not_called()
 
 
 def test_refetch_interval_ignores_stale_or_other_ref_stamp(tmp_path: Path) -> None:
@@ -643,16 +650,16 @@ def test_refetch_interval_ignores_stale_or_other_ref_stamp(tmp_path: Path) -> No
 
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
-        fetch_repo_script, 'run_cmd'
-    ) as run_cmd_mock:
+        fetch_repo_script, 'run_command'
+    ) as command_mock:
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, str(repo), 'main', depth=1, refetch_interval=3600)
-        stale_calls = run_cmd_mock.call_count
+        stale_calls = command_mock.call_count
         fetch_repo_script.clear_fetch_cache()
         fetch_repo_script.fetch_repo(_URL, str(repo), 'feature', depth=1, refetch_interval=3600)
 
     assert stale_calls > 0
-    assert run_cmd_mock.call_count > stale_calls
+    assert command_mock.call_count > stale_calls
 
 
 @pytest.mark.parametrize('stderr', [_CONNECT_STDERR, _HTTP_503_STDERR])
@@ -666,16 +673,17 @@ def test_fetch_retries_transient_git_errors(stderr: str, monkeypatch: pytest.Mon
     repo = _checkout_with_git_dir(tmp_path)
     state = {'n': 0}
 
-    def _run(cmd: List[str], **_kwargs: Any) -> None:
+    def _run(cmd: List[str], **_kwargs: Any) -> CmdResult:
         if 'fetch' in cmd:
             state['n'] += 1
             if state['n'] < 3:
-                raise RunCmdError(str(cmd), stderr)
+                return CmdResult(returncode=1, stderr=stderr)
+        return CmdResult(returncode=0)
 
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run):
+    ), mock.patch.object(fetch_repo_script, 'run_command', side_effect=_run):
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, repo, 'main', max_retry=3, retry_delay=[0.5, 2.0])
 
@@ -687,15 +695,16 @@ def test_fetch_raises_called_process_error_after_retries(monkeypatch: pytest.Mon
     monkeypatch.setattr(decorators, 'time', _RetryClock(lambda _seconds: None))
     state = {'n': 0}
 
-    def _run(cmd: List[str], **_kwargs: Any) -> None:
+    def _run(cmd: List[str], **_kwargs: Any) -> CmdResult:
         if 'fetch' in cmd:
             state['n'] += 1
-            raise RunCmdError(str(cmd), _CONNECT_STDERR)
+            return CmdResult(returncode=1, stderr=_CONNECT_STDERR)
+        return CmdResult(returncode=0)
 
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run), pytest.raises(RunCmdError):
+    ), mock.patch.object(fetch_repo_script, 'run_command', side_effect=_run), pytest.raises(RunCmdError):
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=2, retry_delay=0)
 
@@ -711,15 +720,16 @@ def test_fetch_does_not_retry_missing_ref(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(decorators, 'time', _RetryClock(_record))
     state = {'n': 0}
 
-    def _run(cmd: List[str], **_kwargs: Any) -> None:
+    def _run(cmd: List[str], **_kwargs: Any) -> CmdResult:
         if 'fetch' in cmd:
             state['n'] += 1
-            raise RunCmdError(str(cmd), _MISSING_REF_STDERR)
+            return CmdResult(returncode=1, stderr=_MISSING_REF_STDERR)
+        return CmdResult(returncode=0)
 
     # fmt: off
     with mock.patch.object(fetch_repo_script, 'check_git_repo'), mock.patch.object(
         fetch_repo_script.os.path, 'isdir', return_value=True
-    ), mock.patch.object(fetch_repo_script, 'run_cmd', side_effect=_run), pytest.raises(RunCmdError):
+    ), mock.patch.object(fetch_repo_script, 'run_command', side_effect=_run), pytest.raises(RunCmdError):
     # fmt: on
         fetch_repo_script.fetch_repo(_URL, '/tmp/repo', 'main', max_retry=3, retry_delay=5, fallback_refs=())
 

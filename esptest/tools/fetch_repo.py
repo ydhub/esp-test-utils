@@ -18,10 +18,10 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
+from typing import Dict, List, NamedTuple, NoReturn, Optional, Sequence, Set, Tuple, Union
 
 from esptest.common.decorators import retry
-from esptest.common.shell import RunCmdError, run_cmd
+from esptest.common.shell import CmdResult, RunCmdError, run_command
 
 # Sentinel for fallback_refs: the remote HEAD branch, not a branch named "default".
 DEFAULT_BRANCH = 'default'
@@ -31,6 +31,11 @@ DEFAULT_BRANCH = 'default'
 # and depth that fetch was. Skipping on time alone would also skip a request
 # that just fetched a different ref.
 _STAMP_NAME = 'esptest_fetch_stamp.json'
+
+
+def _git(cmd: List[str]) -> CmdResult:
+    """Run git and capture its text. A non-zero exit stays on the result."""
+    return run_command(cmd, check=False, capture_output=True, text=True, errors='ignore')
 
 
 class _LastFetch(NamedTuple):
@@ -103,14 +108,24 @@ def _is_missing_ref(exc: RunCmdError) -> bool:
     return "couldn't find remote ref" in text or 'could not find remote ref' in text or 'not our ref' in text
 
 
+def _raise_git_failure(result: CmdResult) -> NoReturn:
+    exc = RunCmdError(
+        str(result.cmd),
+        result.output,
+        retcode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+    if _is_transient_git_error(exc):
+        detail = _error_text(exc).strip() or str(exc)
+        raise TransientFetchError(detail) from exc
+    raise exc
+
+
 def _run_git(cmd: List[str]) -> None:
-    try:
-        run_cmd(cmd)
-    except RunCmdError as exc:
-        if _is_transient_git_error(exc):
-            detail = _error_text(exc).strip() or str(exc)
-            raise TransientFetchError(detail) from exc
-        raise
+    result = _git(cmd)
+    if not result.ok:
+        _raise_git_failure(result)
 
 
 def check_git_repo(repo_path: str) -> None:
@@ -123,9 +138,8 @@ def check_git_repo(repo_path: str) -> None:
         shutil.rmtree(repo_path)
         return
 
-    try:
-        run_cmd(['git', '-C', repo_path, 'rev-parse', '--git-dir'])
-    except RunCmdError:
+    result = _git(['git', '-C', repo_path, 'rev-parse', '--git-dir'])
+    if not result.ok:
         logging.error(f'Git repo {repo_path} corrupted, removing...')
         shutil.rmtree(repo_path)
 
@@ -187,14 +201,15 @@ def _read_last_fetch(path: str, url: str, ref: str, depth: int) -> Optional[_Las
 
 def _workspace_has_resolved_ref(path: str, resolved_ref: str) -> bool:
     """Return whether ``path`` is still checked out at ``resolved_ref``."""
-    try:
-        abbrev = run_cmd(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD']).strip()
-        if abbrev == resolved_ref:
-            return True
-        head = run_cmd(['git', '-C', path, 'rev-parse', 'HEAD']).strip()
-    except RunCmdError:
+    abbrev = _git(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    if not abbrev.ok:
         return False
-    return head == resolved_ref
+    if abbrev.output.strip() == resolved_ref:
+        return True
+    head = _git(['git', '-C', path, 'rev-parse', 'HEAD'])
+    if not head.ok:
+        return False
+    return head.output.strip() == resolved_ref
 
 
 def _record_still_checked_out(path: str, record: _LastFetch) -> bool:
@@ -265,14 +280,10 @@ def _normalize_fallback_refs(fallback_refs: Sequence[str]) -> Tuple[str, ...]:
 
 def _remote_default_branch(url: str) -> str:
     """Return the remote HEAD branch name, such as ``main`` or ``master``."""
-    try:
-        text = run_cmd(['git', 'ls-remote', '--symref', url, 'HEAD'])
-    except RunCmdError as exc:
-        if _is_transient_git_error(exc):
-            detail = _error_text(exc).strip() or str(exc)
-            raise TransientFetchError(detail) from exc
-        raise
-    for line in text.splitlines():
+    result = _git(['git', 'ls-remote', '--symref', url, 'HEAD'])
+    if not result.ok:
+        _raise_git_failure(result)
+    for line in result.output.splitlines():
         if not line.startswith('ref:'):
             continue
         parts = line.split()
